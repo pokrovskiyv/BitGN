@@ -406,7 +406,15 @@ def run_agent(model: str, harness_url: str, task_text: str) -> None:
         print(f"Next {step}... ", end="")
 
         started = time.time()
-        job = call_llm(strategy.system_prompt, messages, model)
+        job = None
+        for attempt in range(3):
+            try:
+                job = call_llm(strategy.system_prompt, messages, model)
+                break
+            except Exception as exc:
+                print(f"LLM parse error (attempt {attempt + 1}/3): {exc}")
+                if attempt == 2:
+                    raise
         elapsed_ms = int((time.time() - started) * 1000)
 
         print(job.plan_remaining_steps_brief[0], f"({elapsed_ms} ms)\n  {job.function}")
