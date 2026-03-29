@@ -25,7 +25,7 @@ class TaskClassification:
 # ── Keyword patterns ──────────────────────────────────────────────────────
 
 _WRITE_SIGNALS = re.compile(
-    r"\b(create|write|add|append|insert|update|set|change|rename|move)\b", re.IGNORECASE
+    r"\b(create|write|add|append|insert|update|set|change|rename|move|process)\b", re.IGNORECASE
 )
 _DELETE_SIGNALS = re.compile(
     r"\b(delete|remove|drop|clear|purge|erase)\b", re.IGNORECASE
@@ -38,7 +38,7 @@ _ANALYSIS_SIGNALS = re.compile(
     re.IGNORECASE,
 )
 _MULTI_STEP_SIGNALS = re.compile(
-    r"\b(then|after\s+that|next|also|and\s+then|finally|first.*then|step\s+\d)\b",
+    r"\b(then|after\s+that|next|also|and\s+then|finally|first.*then|step\s+\d|process)\b",
     re.IGNORECASE,
 )
 
