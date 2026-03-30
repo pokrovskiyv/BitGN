@@ -8,12 +8,12 @@ resolution-markers = [
 ]
 
 [manifest]
-overrides = [{ name = "protobuf", specifier = ">=7.34.1" }]
+overrides = [{ name = "protobuf", specifier = ">=7.34.1,<8" }]
 
 [[package]]
 name = "agent-evolve"
 version = "0.1.0"
-source = { git = "https://github.com/A-EVO-Lab/a-evolve.git#633ebb6e219b7a2594f5f7299bba834afb622503" }
+source = { git = "https://github.com/A-EVO-Lab/a-evolve.git?rev=633ebb6e219b7a2594f5f7299bba834afb622503#633ebb6e219b7a2594f5f7299bba834afb622503" }
 dependencies = [
     { name = "matplotlib" },
     { name = "pyyaml" },
@@ -213,7 +213,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-evolve", git = "https://github.com/A-EVO-Lab/a-evolve.git" },
+    { name = "agent-evolve", git = "https://github.com/A-EVO-Lab/a-evolve.git?rev=633ebb6e219b7a2594f5f7299bba834afb622503" },
     { name = "anthropic", specifier = ">=0.50.0" },
     { name = "bitgn-api-connectrpc-python", specifier = "==0.9.0.1.20260324104753+6b18c777b19a" },
     { name = "bitgn-api-protocolbuffers-python", specifier = "==34.1.0.1.20260324104753+6b18c777b19a" },
