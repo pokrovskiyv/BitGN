@@ -7,10 +7,10 @@ The trial lifecycle (start → run → end) is owned by BitgnAgent.solve().
 
 import os
 
-from bitgn.harness_connect import HarnessServiceClientSync
-from bitgn.harness_pb2 import GetBenchmarkRequest
 from agent_evolve.benchmarks.base import BenchmarkAdapter
 from agent_evolve.types import Feedback, Task, Trajectory
+from bitgn.harness_connect import HarnessServiceClientSync
+from bitgn.harness_pb2 import GetBenchmarkRequest
 
 
 class BitgnBenchmarkAdapter(BenchmarkAdapter):
@@ -39,7 +39,9 @@ class BitgnBenchmarkAdapter(BenchmarkAdapter):
         all_tasks = [Task(id=t.task_id, input=t.task_id) for t in res.tasks]
 
         if not all_tasks:
-            raise ValueError(f"Benchmark {self._benchmark_id!r} returned 0 tasks — check benchmark_id and API access")
+            raise ValueError(
+                f"Benchmark {self._benchmark_id!r} returned 0 tasks — check benchmark_id and API access"
+            )
 
         if split not in ("train", "holdout"):
             raise ValueError(f"Unknown split {split!r}; expected 'train' or 'holdout'")

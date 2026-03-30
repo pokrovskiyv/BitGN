@@ -1,0 +1,28 @@
+# Ruff configuration for BitGN
+# https://docs.astral.sh/ruff/configuration/
+
+target-version = "py314"
+line-length = 99
+
+[lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific rules
+]
+ignore = [
+    "E501",   # line too long — handled by formatter
+    "SIM108", # ternary operator — readability preference
+]
+
+[lint.isort]
+known-first-party = ["agent", "classify", "strategy", "defend", "verify"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

@@ -5,7 +5,6 @@ from datetime import date
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-
 from log_parser import load_all_run_logs
 from parsers import (
     load_analysis_reports,
@@ -49,9 +48,7 @@ st.title("BitGN PAC — Command Center")
 
 h1, h2, h3, h4, h5, h6 = st.columns([3, 1, 1, 1, 1, 1])
 with h1:
-    st.caption(
-        "PCDRED · docs/eval/ + docs/run_history.json · Reload page to refresh"
-    )
+    st.caption("PCDRED · docs/eval/ + docs/run_history.json · Reload page to refresh")
 with h2:
     score = latest_eval.score_pct if latest_eval else 0.0
     delta = latest_eval.delta_pct if latest_eval else 0.0
@@ -91,22 +88,20 @@ with col_left:
             "UNKNOWN": "#94a3b8",
         }
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=[r.timestamp for r in dated_evals],
-            y=[r.score_pct for r in dated_evals],
-            mode="lines+markers",
-            marker=dict(
-                size=12,
-                color=[color_map.get(r.verdict, "#94a3b8") for r in dated_evals],
-                line=dict(width=1.5, color="white"),
-            ),
-            line=dict(color="#6366f1", width=2.5),
-            hovertemplate=(
-                "<b>%{x}</b><br>"
-                "Score: %{y:.0f}%<br>"
-                "<extra></extra>"
-            ),
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=[r.timestamp for r in dated_evals],
+                y=[r.score_pct for r in dated_evals],
+                mode="lines+markers",
+                marker=dict(
+                    size=12,
+                    color=[color_map.get(r.verdict, "#94a3b8") for r in dated_evals],
+                    line=dict(width=1.5, color="white"),
+                ),
+                line=dict(color="#6366f1", width=2.5),
+                hovertemplate=("<b>%{x}</b><br>Score: %{y:.0f}%<br><extra></extra>"),
+            )
+        )
         fig.update_layout(
             yaxis=dict(range=[0, 100], title="Score (%)", gridcolor="#2d2d2d"),
             xaxis=dict(title="", tickangle=-20),
@@ -193,15 +188,17 @@ with col_weak:
         )
 
         if weak_sorted:
-            ws_df = pd.DataFrame([
-                {
-                    "Task": tid,
-                    "Win Rate": f"{sum(sc)/len(sc)*100:.0f}%",
-                    "Runs": len(sc),
-                    "Last": "✓" if sc[-1] >= 1.0 else "✗",
-                }
-                for tid, sc in weak_sorted[:12]
-            ])
+            ws_df = pd.DataFrame(
+                [
+                    {
+                        "Task": tid,
+                        "Win Rate": f"{sum(sc) / len(sc) * 100:.0f}%",
+                        "Runs": len(sc),
+                        "Last": "✓" if sc[-1] >= 1.0 else "✗",
+                    }
+                    for tid, sc in weak_sorted[:12]
+                ]
+            )
             st.dataframe(ws_df, use_container_width=True, hide_index=True)
         else:
             st.success("All logged tasks passing consistently.")
@@ -264,12 +261,14 @@ if len(run_history) >= 2:
         sa = float(run_a.tasks.get(tid, {}).get("score", 0.0))
         sb = float(run_b.tasks.get(tid, {}).get("score", 0.0))
         d = sb - sa
-        comp_rows.append({
-            "Task": tid,
-            "Run A": f"{sa:.2f}",
-            "Run B": f"{sb:.2f}",
-            "Delta": f"+{d:.2f}" if d > 0 else (f"{d:.2f}" if d < 0 else "—"),
-        })
+        comp_rows.append(
+            {
+                "Task": tid,
+                "Run A": f"{sa:.2f}",
+                "Run B": f"{sb:.2f}",
+                "Delta": f"+{d:.2f}" if d > 0 else (f"{d:.2f}" if d < 0 else "—"),
+            }
+        )
 
     comp_df = pd.DataFrame(comp_rows)
 
@@ -318,8 +317,7 @@ if latest_eval and latest_eval.tasks:
                 st.markdown(f"**Status:** {status_icon} {task_score_obj.status}")
             if cached:
                 st.caption(
-                    f"Model: {cached.get('model', '—')}  "
-                    f"  \n{cached.get('timestamp', '')[:10]}"
+                    f"Model: {cached.get('model', '—')}    \n{cached.get('timestamp', '')[:10]}"
                 )
 
         with col_detail:
@@ -347,18 +345,20 @@ if latest_eval and latest_eval.tasks:
             if hist_scores:
                 st.markdown(f"**History — {selected}**")
                 fig_h = go.Figure()
-                fig_h.add_trace(go.Scatter(
-                    x=hist_ts,
-                    y=hist_scores,
-                    mode="lines+markers",
-                    marker=dict(
-                        size=10,
-                        color=["#22c55e" if s >= 1.0 else "#ef4444" for s in hist_scores],
-                        line=dict(width=1.5, color="white"),
-                    ),
-                    line=dict(color="#6366f1", width=2),
-                    hovertemplate="<b>%{x}</b><br>Score: %{y:.2f}<extra></extra>",
-                ))
+                fig_h.add_trace(
+                    go.Scatter(
+                        x=hist_ts,
+                        y=hist_scores,
+                        mode="lines+markers",
+                        marker=dict(
+                            size=10,
+                            color=["#22c55e" if s >= 1.0 else "#ef4444" for s in hist_scores],
+                            line=dict(width=1.5, color="white"),
+                        ),
+                        line=dict(color="#6366f1", width=2),
+                        hovertemplate="<b>%{x}</b><br>Score: %{y:.2f}<extra></extra>",
+                    )
+                )
                 fig_h.update_layout(
                     yaxis=dict(range=[-0.1, 1.1], tickvals=[0, 0.5, 1.0], gridcolor="#2d2d2d"),
                     xaxis=dict(tickangle=-20),
@@ -371,7 +371,7 @@ if latest_eval and latest_eval.tasks:
                 pass_count = sum(1 for s in hist_scores if s >= 1.0)
                 st.caption(
                     f"Win rate: {pass_count}/{len(hist_scores)} "
-                    f"({pass_count/len(hist_scores)*100:.0f}%)"
+                    f"({pass_count / len(hist_scores) * 100:.0f}%)"
                 )
             else:
                 st.info("No history yet — appears after first `make run`.")
@@ -385,13 +385,13 @@ if latest_eval and latest_eval.tasks:
             if task_trace:
                 with st.expander(
                     f"🔍 Execution Trace — {task_trace.step_count} steps, "
-                    f"{task_trace.total_time_ms/1000:.1f}s, "
+                    f"{task_trace.total_time_ms / 1000:.1f}s, "
                     f"{task_trace.classification}",
                     expanded=False,
                 ):
                     m1, m2, m3, m4 = st.columns(4)
                     m1.metric("Steps", task_trace.step_count)
-                    m2.metric("Time", f"{task_trace.total_time_ms/1000:.1f}s")
+                    m2.metric("Time", f"{task_trace.total_time_ms / 1000:.1f}s")
                     m3.metric("Budget", f"{task_trace.step_count}/{task_trace.max_steps}")
                     m4.metric("Events", sum(task_trace.events_summary.values()))
 
@@ -401,13 +401,15 @@ if latest_eval and latest_eval.tasks:
                             "🛡️" if e == "GATE" else "🔴" if e == "DEFEND" else "⚠️"
                             for e in s.events
                         )
-                        step_rows.append({
-                            "#": s.step_num,
-                            "Tool": s.tool,
-                            "Plan": s.plan_brief[:60],
-                            "Time": f"{s.timing_ms/1000:.1f}s",
-                            "Events": event_badges or "—",
-                        })
+                        step_rows.append(
+                            {
+                                "#": s.step_num,
+                                "Tool": s.tool,
+                                "Plan": s.plan_brief[:60],
+                                "Time": f"{s.timing_ms / 1000:.1f}s",
+                                "Events": event_badges or "—",
+                            }
+                        )
                     if step_rows:
                         st.dataframe(
                             pd.DataFrame(step_rows),
@@ -417,19 +419,16 @@ if latest_eval and latest_eval.tasks:
 
                     if task_trace.steps:
                         fig_t = go.Figure()
-                        fig_t.add_trace(go.Bar(
-                            x=[f"step_{s.step_num}" for s in task_trace.steps],
-                            y=[s.timing_ms / 1000 for s in task_trace.steps],
-                            marker_color=[
-                                "#ef4444" if s.events else "#6366f1"
-                                for s in task_trace.steps
-                            ],
-                            hovertemplate=(
-                                "<b>Step %{x}</b><br>"
-                                "%{y:.1f}s<br>"
-                                "<extra></extra>"
-                            ),
-                        ))
+                        fig_t.add_trace(
+                            go.Bar(
+                                x=[f"step_{s.step_num}" for s in task_trace.steps],
+                                y=[s.timing_ms / 1000 for s in task_trace.steps],
+                                marker_color=[
+                                    "#ef4444" if s.events else "#6366f1" for s in task_trace.steps
+                                ],
+                                hovertemplate=("<b>Step %{x}</b><br>%{y:.1f}s<br><extra></extra>"),
+                            )
+                        )
                         fig_t.update_layout(
                             yaxis=dict(title="Seconds", gridcolor="#2d2d2d"),
                             xaxis=dict(title=""),
@@ -474,8 +473,7 @@ with tab_rt:
         c2.metric("Partial", rating_counts["PARTIAL"])
         c3.metric("Bypasses", rating_counts["BYPASSES"])
         st.caption(
-            f"Cycle: {latest_redteam.timestamp} · "
-            f"{len(latest_redteam.attacks)} attacks analyzed"
+            f"Cycle: {latest_redteam.timestamp} · {len(latest_redteam.attacks)} attacks analyzed"
         )
         for a in latest_redteam.attacks:
             badge = {"BLOCKED": "🟢", "PARTIAL": "🟡", "BYPASSES": "🔴"}.get(a.rating, "⚪")
@@ -507,17 +505,19 @@ with tab_hist:
             "REGRESSED": "🔴 REGRESSED",
             "UNKNOWN": "❓ UNKNOWN",
         }
-        df_history = pd.DataFrame([
-            {
-                "Run": r.timestamp,
-                "Verdict": verdict_badge.get(r.verdict, r.verdict),
-                "Score": f"{r.score_pct:.0f}%",
-                "Delta": f"{r.delta_pct:+.0f}%" if r.delta_pct != 0 else "—",
-                "Passed": f"{r.tasks_passed}/25",
-                "Model": r.model,
-            }
-            for r in reversed(evals)
-        ])
+        df_history = pd.DataFrame(
+            [
+                {
+                    "Run": r.timestamp,
+                    "Verdict": verdict_badge.get(r.verdict, r.verdict),
+                    "Score": f"{r.score_pct:.0f}%",
+                    "Delta": f"{r.delta_pct:+.0f}%" if r.delta_pct != 0 else "—",
+                    "Passed": f"{r.tasks_passed}/25",
+                    "Model": r.model,
+                }
+                for r in reversed(evals)
+            ]
+        )
         st.dataframe(df_history, use_container_width=True, hide_index=True)
     else:
         st.info("No eval reports found.")
@@ -528,9 +528,9 @@ st.divider()
 
 st.subheader("Analytics")
 
-tab_heatmap, tab_cats, tab_attrib, tab_prio = st.tabs([
-    "Task Stability", "Failure Categories", "Fix Attribution", "Priority Board"
-])
+tab_heatmap, tab_cats, tab_attrib, tab_prio = st.tabs(
+    ["Task Stability", "Failure Categories", "Fix Attribution", "Priority Board"]
+)
 
 with tab_heatmap:
     dated = [e for e in evals if e.tasks and len(e.timestamp) == 13]
@@ -543,19 +543,22 @@ with tab_heatmap:
         pivot = hm_df.pivot(index="Task", columns="Run", values="Score").fillna(-1)
         pivot = pivot.reindex(sorted(pivot.index, key=lambda x: int(x[1:])))
 
-        fig_hm = go.Figure(data=go.Heatmap(
-            z=pivot.values,
-            x=pivot.columns.tolist(),
-            y=pivot.index.tolist(),
-            colorscale=[
-                [0.0, "#1e1e1e"],
-                [0.45, "#ef4444"],
-                [0.55, "#ef4444"],
-                [1.0, "#22c55e"],
-            ],
-            zmin=-1, zmax=1,
-            hovertemplate="Task: %{y}<br>Run: %{x}<br>Score: %{z:.2f}<extra></extra>",
-        ))
+        fig_hm = go.Figure(
+            data=go.Heatmap(
+                z=pivot.values,
+                x=pivot.columns.tolist(),
+                y=pivot.index.tolist(),
+                colorscale=[
+                    [0.0, "#1e1e1e"],
+                    [0.45, "#ef4444"],
+                    [0.55, "#ef4444"],
+                    [1.0, "#22c55e"],
+                ],
+                zmin=-1,
+                zmax=1,
+                hovertemplate="Task: %{y}<br>Run: %{x}<br>Score: %{z:.2f}<extra></extra>",
+            )
+        )
         fig_hm.update_layout(
             yaxis=dict(autorange="reversed"),
             plot_bgcolor="rgba(0,0,0,0)",
@@ -575,14 +578,20 @@ with tab_cats:
         cats = list(cat_counts.keys())
         counts = list(cat_counts.values())
         cat_colors = {
-            "STAGNATION": "#eab308", "PROTOCOL": "#3b82f6", "SECURITY": "#ef4444",
-            "TOOL_ERROR": "#f97316", "SIDE_EFFECT": "#a855f7", "EDGE_CASE": "#22d3ee",
+            "STAGNATION": "#eab308",
+            "PROTOCOL": "#3b82f6",
+            "SECURITY": "#ef4444",
+            "TOOL_ERROR": "#f97316",
+            "SIDE_EFFECT": "#a855f7",
+            "EDGE_CASE": "#22d3ee",
         }
-        fig_cat = go.Figure(data=go.Bar(
-            x=cats,
-            y=counts,
-            marker_color=[cat_colors.get(c, "#94a3b8") for c in cats],
-        ))
+        fig_cat = go.Figure(
+            data=go.Bar(
+                x=cats,
+                y=counts,
+                marker_color=[cat_colors.get(c, "#94a3b8") for c in cats],
+            )
+        )
         fig_cat.update_layout(
             yaxis=dict(title="Reports", gridcolor="#2d2d2d"),
             plot_bgcolor="rgba(0,0,0,0)",
@@ -603,9 +612,7 @@ with tab_attrib:
     for e in reversed(evals):
         if e.fix_attribution:
             has_data = True
-            with st.expander(
-                f"{e.timestamp} — {e.verdict} — {e.score_pct:.0f}%", expanded=False
-            ):
+            with st.expander(f"{e.timestamp} — {e.verdict} — {e.score_pct:.0f}%", expanded=False):
                 st.markdown(e.fix_attribution)
         if e.consistently_failing:
             has_data = True

@@ -1,11 +1,17 @@
 import json
 import os
 import textwrap
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from bitgn.harness_connect import HarnessServiceClientSync
-from bitgn.harness_pb2 import EndTrialRequest, EvalPolicy, GetBenchmarkRequest, StartPlaygroundRequest, StatusRequest
+from bitgn.harness_pb2 import (
+    EndTrialRequest,
+    EvalPolicy,
+    GetBenchmarkRequest,
+    StartPlaygroundRequest,
+    StatusRequest,
+)
 from connectrpc.errors import ConnectError
 
 from agent import run_agent
@@ -17,10 +23,10 @@ MODEL_ID = os.getenv("MODEL_ID") or "claude-sonnet-4-6"
 TASK_CACHE_PATH = Path(__file__).parent.parent / "docs" / "task_cache.json"
 RUN_HISTORY_PATH = Path(__file__).parent.parent / "docs" / "run_history.json"
 
-CLI_RED = "\x1B[31m"
-CLI_GREEN = "\x1B[32m"
-CLI_CLR = "\x1B[0m"
-CLI_BLUE = "\x1B[34m"
+CLI_RED = "\x1b[31m"
+CLI_GREEN = "\x1b[32m"
+CLI_CLR = "\x1b[0m"
+CLI_BLUE = "\x1b[34m"
 
 
 def _save_task_cache(task_data: dict) -> None:
@@ -46,7 +52,7 @@ def _append_run_history(task_data: dict, scores: list) -> None:
     score_pct = round(tasks_passed / tasks_total * 100.0, 2) if tasks_total else 0.0
 
     record = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "model": MODEL_ID,
         "score_pct": score_pct,
         "tasks_passed": tasks_passed,
@@ -116,7 +122,7 @@ def main() -> None:
                     "score": result.score,
                     "score_detail": list(result.score_detail),
                     "model": MODEL_ID,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 }
                 style = CLI_GREEN if result.score == 1 else CLI_RED
                 explain = textwrap.indent("\n".join(result.score_detail), "  ")

@@ -3,12 +3,9 @@ import os
 import re
 import subprocess
 import time
-from typing import Annotated, List, Literal, Union
+from typing import Annotated, Literal
 
 from annotated_types import Ge, Le, MaxLen, MinLen
-from google.protobuf.json_format import MessageToDict
-from pydantic import BaseModel, Field
-
 from bitgn.vm.mini_connect import MiniRuntimeClientSync
 from bitgn.vm.mini_pb2 import (
     AnswerRequest,
@@ -20,16 +17,17 @@ from bitgn.vm.mini_pb2 import (
     WriteRequest,
 )
 from connectrpc.errors import ConnectError
-
+from google.protobuf.json_format import MessageToDict
+from pydantic import BaseModel, Field
 
 # ── Pydantic models (shared by both backends) ──────────────────────────────
 
 
 class ReportTaskCompletion(BaseModel):
     tool: Literal["report_completion"]
-    completed_steps_laconic: List[str]
+    completed_steps_laconic: list[str]
     answer: str
-    grounding_refs: List[str] = Field(default_factory=list)
+    grounding_refs: list[str] = Field(default_factory=list)
     code: Literal["completed", "failed"]
 
 
@@ -68,20 +66,14 @@ class Req_Delete(BaseModel):
 
 class NextStep(BaseModel):
     current_state: str
-    plan_remaining_steps_brief: Annotated[List[str], MinLen(1), MaxLen(5)] = Field(
+    plan_remaining_steps_brief: Annotated[list[str], MinLen(1), MaxLen(5)] = Field(
         ...,
         description="explain your thoughts on how to accomplish - what steps to execute",
     )
     task_completed: bool
-    function: Union[
-        ReportTaskCompletion,
-        Req_Tree,
-        Req_Search,
-        Req_List,
-        Req_Read,
-        Req_Write,
-        Req_Delete,
-    ] = Field(..., description="execute first remaining step")
+    function: (
+        ReportTaskCompletion | Req_Tree | Req_Search | Req_List | Req_Read | Req_Write | Req_Delete
+    ) = Field(..., description="execute first remaining step")
 
 
 # ── Shared config ───────────────────────────────────────────────────────────
@@ -101,10 +93,10 @@ NEXTSTEP_SCHEMA = json.dumps(NextStep.model_json_schema(), indent=2)
 # LLM_BACKEND: "cli" (free, claude -p) or "api" (Anthropic SDK)
 LLM_BACKEND = os.getenv("LLM_BACKEND", "cli")
 
-CLI_RED = "\x1B[31m"
-CLI_GREEN = "\x1B[32m"
-CLI_CLR = "\x1B[0m"
-CLI_BLUE = "\x1B[34m"
+CLI_RED = "\x1b[31m"
+CLI_GREEN = "\x1b[32m"
+CLI_CLR = "\x1b[0m"
+CLI_BLUE = "\x1b[34m"
 
 
 # ── LLM call (the only part that differs) ──────────────────────────────────
@@ -144,10 +136,14 @@ Respond with a single valid JSON object matching this schema. No markdown fences
 {NEXTSTEP_SCHEMA}"""
 
     cmd = [
-        "claude", "-p",
-        "--output-format", "json",
-        "--max-turns", "1",
-        "--system-prompt", system.strip(),
+        "claude",
+        "-p",
+        "--output-format",
+        "json",
+        "--max-turns",
+        "1",
+        "--system-prompt",
+        system.strip(),
     ]
     if model:
         cmd.extend(["--model", model])
@@ -236,10 +232,12 @@ def run_agent(model: str, harness_url: str, task_text: str):
 
         print(job.plan_remaining_steps_brief[0], f"({elapsed_ms} ms)\n  {job.function}")
 
-        messages.append({
-            "role": "assistant",
-            "content": job.model_dump_json(),
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": job.model_dump_json(),
+            }
+        )
 
         try:
             result = dispatch(vm, job.function)

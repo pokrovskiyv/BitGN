@@ -8,7 +8,6 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-
 TaskType = Literal["crud", "search", "multi_step", "analysis", "security_test"]
 ThreatLevel = Literal["none", "low", "high"]
 
@@ -25,11 +24,10 @@ class TaskClassification:
 # ── Keyword patterns ──────────────────────────────────────────────────────
 
 _WRITE_SIGNALS = re.compile(
-    r"\b(create|write|add|append|insert|update|set|change|rename|move|process)\b", re.IGNORECASE
+    r"\b(create|write|add|append|insert|update|set|change|rename|move|process)\b",
+    re.IGNORECASE,
 )
-_DELETE_SIGNALS = re.compile(
-    r"\b(delete|remove|drop|clear|purge|erase)\b", re.IGNORECASE
-)
+_DELETE_SIGNALS = re.compile(r"\b(delete|remove|drop|clear|purge|erase)\b", re.IGNORECASE)
 _SEARCH_SIGNALS = re.compile(
     r"\b(find|search|locate|look\s+for|where\s+is|which\s+files?)\b", re.IGNORECASE
 )

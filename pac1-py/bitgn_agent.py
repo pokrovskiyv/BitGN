@@ -14,10 +14,10 @@ import logging
 import os
 from pathlib import Path
 
-from bitgn.harness_connect import HarnessServiceClientSync
-from bitgn.harness_pb2 import EndTrialRequest, StartPlaygroundRequest
 from agent_evolve.protocol.base_agent import BaseAgent
 from agent_evolve.types import Task, Trajectory
+from bitgn.harness_connect import HarnessServiceClientSync
+from bitgn.harness_pb2 import EndTrialRequest, StartPlaygroundRequest
 
 from agent import run_agent
 
@@ -57,8 +57,10 @@ class BitgnAgent(BaseAgent):
         return Trajectory(
             task_id=task.id,
             output=f"score={result.score:.2f}",
-            conversation=[{
-                "score": float(result.score),
-                "detail": list(result.score_detail),
-            }],
+            conversation=[
+                {
+                    "score": float(result.score),
+                    "detail": list(result.score_detail),
+                }
+            ],
         )

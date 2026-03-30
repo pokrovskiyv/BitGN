@@ -25,6 +25,7 @@ Thumbs.db
 
 # Claude Code local settings (machine-specific paths)
 .claude/settings.local.json
+CLAUDE.local.md
 
 # Git worktrees
 .worktrees/

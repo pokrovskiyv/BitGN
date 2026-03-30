@@ -67,9 +67,7 @@ def parse_benchmark_log(path: Path) -> list:
         steps = []
         events_count = {"GATE": 0, "DEFEND": 0, "STAGNATION": 0, "LLM_ERROR": 0}
 
-        step_matches = list(re.finditer(
-            r"Next step_(\d+)\.\.\.\s*(.+?)\s*\((\d+)\s*ms\)", block
-        ))
+        step_matches = list(re.finditer(r"Next step_(\d+)\.\.\.\s*(.+?)\s*\((\d+)\s*ms\)", block))
 
         for idx, step_m in enumerate(step_matches):
             step_num = int(step_m.group(1))
@@ -81,7 +79,7 @@ def parse_benchmark_log(path: Path) -> list:
                 continue
 
             pos = step_m.end()
-            tool_m = re.search(r"tool='(\w+)'(.+)?", block[pos:pos + 200])
+            tool_m = re.search(r"tool='(\w+)'(.+)?", block[pos : pos + 200])
             tool = tool_m.group(1) if tool_m else ""
             args_summary = tool_m.group(0).strip()[:80] if tool_m else ""
 
@@ -99,14 +97,16 @@ def parse_benchmark_log(path: Path) -> list:
                 events_count["STAGNATION"] += 1
                 step_events.append("STAGNATION")
 
-            steps.append(StepTrace(
-                step_num=step_num,
-                plan_brief=plan_brief,
-                tool=tool,
-                args_summary=args_summary,
-                timing_ms=timing_ms,
-                events=step_events,
-            ))
+            steps.append(
+                StepTrace(
+                    step_num=step_num,
+                    plan_brief=plan_brief,
+                    tool=tool,
+                    args_summary=args_summary,
+                    timing_ms=timing_ms,
+                    events=step_events,
+                )
+            )
 
         llm_errors_in_block = len(re.findall(r"LLM parse error \(attempt", block))
         events_count["LLM_ERROR"] = max(events_count["LLM_ERROR"], llm_errors_in_block)
@@ -116,19 +116,21 @@ def parse_benchmark_log(path: Path) -> list:
 
         total_time = sum(s.timing_ms for s in steps)
 
-        traces.append(TaskTrace(
-            task_id=task_id,
-            instruction=instruction,
-            classification=classification,
-            task_type=task_type,
-            max_steps=max_steps,
-            threat=threat,
-            steps=steps,
-            score=score,
-            total_time_ms=total_time,
-            step_count=len(steps),
-            events_summary=events_count,
-        ))
+        traces.append(
+            TaskTrace(
+                task_id=task_id,
+                instruction=instruction,
+                classification=classification,
+                task_type=task_type,
+                max_steps=max_steps,
+                threat=threat,
+                steps=steps,
+                score=score,
+                total_time_ms=total_time,
+                step_count=len(steps),
+                events_summary=events_count,
+            )
+        )
 
     return traces
 

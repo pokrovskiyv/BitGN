@@ -14,7 +14,6 @@ from pathlib import Path
 import agent_evolve as ae
 from agent_evolve.algorithms.adaptive_evolve import AdaptiveEvolveEngine
 from agent_evolve.config import EvolveConfig
-
 from bitgn_agent import BitgnAgent
 from bitgn_benchmark import BitgnBenchmarkAdapter
 
@@ -49,7 +48,7 @@ def main() -> None:
         holdout_ratio=0.2,
         evolve_prompts=True,
         evolve_skills=True,
-        evolve_memory=False,   # no episodic memory for per-task isolated VMs
+        evolve_memory=False,  # no episodic memory for per-task isolated VMs
         evolver_model=os.getenv("EVOLVER_MODEL", "claude-opus-4-5"),
     )
 

@@ -4,7 +4,7 @@ import re
 import shlex
 import subprocess
 import time
-from typing import Annotated, List, Literal, Union
+from typing import Annotated, Literal
 
 from annotated_types import Ge, Le, MaxLen, MinLen
 from bitgn.vm.pcm_connect import PcmRuntimeClientSync
@@ -22,24 +22,23 @@ from bitgn.vm.pcm_pb2 import (
     TreeRequest,
     WriteRequest,
 )
+from connectrpc.errors import ConnectError
 from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, Field
 
 from classify import classify_task
-from connectrpc.errors import ConnectError
 from defend import scan_content, wrap_tool_output
 from strategy import decide_strategy
-from verify import WriteTracker, StagnationDetector, action_gate_message
-
+from verify import StagnationDetector, WriteTracker, action_gate_message
 
 # ── Pydantic models (shared by both backends) ──────────────────────────────
 
 
 class ReportTaskCompletion(BaseModel):
     tool: Literal["report_completion"]
-    completed_steps_laconic: List[str]
+    completed_steps_laconic: list[str]
     message: str
-    grounding_refs: List[str] = Field(default_factory=list)
+    grounding_refs: list[str] = Field(default_factory=list)
     outcome: Literal[
         "OUTCOME_OK",
         "OUTCOME_DENIED_SECURITY",
@@ -79,8 +78,12 @@ class Req_Read(BaseModel):
     tool: Literal["read"]
     path: str
     number: bool = Field(False, description="return 1-based line numbers")
-    start_line: Annotated[int, Ge(0)] = Field(0, description="1-based inclusive linum; 0 == from the first line")
-    end_line: Annotated[int, Ge(0)] = Field(0, description="1-based inclusive linum; 0 == through the last line")
+    start_line: Annotated[int, Ge(0)] = Field(
+        0, description="1-based inclusive linum; 0 == from the first line"
+    )
+    end_line: Annotated[int, Ge(0)] = Field(
+        0, description="1-based inclusive linum; 0 == through the last line"
+    )
 
 
 class Req_Context(BaseModel):
@@ -92,10 +95,12 @@ class Req_Write(BaseModel):
     path: str
     content: str
     start_line: Annotated[int, Ge(0)] = Field(
-        0, description="1-based inclusive line number; 0 keeps whole-file overwrite behavior",
+        0,
+        description="1-based inclusive line number; 0 keeps whole-file overwrite behavior",
     )
     end_line: Annotated[int, Ge(0)] = Field(
-        0, description="1-based inclusive line number; 0 means through the last line for ranged writes",
+        0,
+        description="1-based inclusive line number; 0 means through the last line for ranged writes",
     )
 
 
@@ -117,24 +122,24 @@ class Req_Move(BaseModel):
 
 class NextStep(BaseModel):
     current_state: str
-    plan_remaining_steps_brief: Annotated[List[str], MinLen(1), MaxLen(5)] = Field(
+    plan_remaining_steps_brief: Annotated[list[str], MinLen(1), MaxLen(5)] = Field(
         ...,
         description="briefly explain the next useful steps",
     )
     task_completed: bool
-    function: Union[
-        ReportTaskCompletion,
-        Req_Context,
-        Req_Tree,
-        Req_Find,
-        Req_Search,
-        Req_List,
-        Req_Read,
-        Req_Write,
-        Req_Delete,
-        Req_MkDir,
-        Req_Move,
-    ] = Field(..., description="execute the first remaining step")
+    function: (
+        ReportTaskCompletion
+        | Req_Context
+        | Req_Tree
+        | Req_Find
+        | Req_Search
+        | Req_List
+        | Req_Read
+        | Req_Write
+        | Req_Delete
+        | Req_MkDir
+        | Req_Move
+    ) = Field(..., description="execute the first remaining step")
 
 
 # ── Shared config ───────────────────────────────────────────────────────────
@@ -145,11 +150,11 @@ NEXTSTEP_SCHEMA = json.dumps(NextStep.model_json_schema(), indent=2)
 # LLM_BACKEND: "cli" (free, claude -p) or "api" (Anthropic SDK)
 LLM_BACKEND = os.getenv("LLM_BACKEND", "cli")
 
-CLI_RED = "\x1B[31m"
-CLI_GREEN = "\x1B[32m"
-CLI_CLR = "\x1B[0m"
-CLI_BLUE = "\x1B[34m"
-CLI_YELLOW = "\x1B[33m"
+CLI_RED = "\x1b[31m"
+CLI_GREEN = "\x1b[32m"
+CLI_CLR = "\x1b[0m"
+CLI_BLUE = "\x1b[34m"
+CLI_YELLOW = "\x1b[33m"
 
 OUTCOME_BY_NAME = {
     "OUTCOME_OK": Outcome.OUTCOME_OK,
@@ -197,10 +202,14 @@ Respond with a single valid JSON object matching this schema. No markdown fences
 {NEXTSTEP_SCHEMA}"""
 
     cmd = [
-        "claude", "-p",
-        "--output-format", "json",
-        "--max-turns", "1",
-        "--system-prompt", system.strip(),
+        "claude",
+        "-p",
+        "--output-format",
+        "json",
+        "--max-turns",
+        "1",
+        "--system-prompt",
+        system.strip(),
     ]
     if model:
         cmd.extend(["--model", model])
@@ -286,8 +295,7 @@ def _format_list_response(cmd: Req_List, result) -> str:
         body = "."
     else:
         body = "\n".join(
-            f"{entry.name}/" if entry.is_dir else entry.name
-            for entry in result.entries
+            f"{entry.name}/" if entry.is_dir else entry.name for entry in result.entries
         )
     return _render_command(f"ls {cmd.path}", body)
 
@@ -307,10 +315,7 @@ def _format_read_response(cmd: Req_Read, result) -> str:
 def _format_search_response(cmd: Req_Search, result) -> str:
     root = shlex.quote(cmd.root or "/")
     pattern = shlex.quote(cmd.pattern)
-    body = "\n".join(
-        f"{match.path}:{match.line}:{match.line_text}"
-        for match in result.matches
-    )
+    body = "\n".join(f"{match.path}:{match.line}:{match.line_text}" for match in result.matches)
     return _render_command(f"rg -n --no-heading -e {pattern} {root}", body)
 
 
@@ -341,7 +346,8 @@ def dispatch(vm: PcmRuntimeClientSync, cmd: BaseModel):
     if isinstance(cmd, Req_Find):
         return vm.find(
             FindRequest(
-                root=cmd.root, name=cmd.name,
+                root=cmd.root,
+                name=cmd.name,
                 type={"all": 0, "files": 1, "dirs": 2}[cmd.kind],
                 limit=cmd.limit,
             )
@@ -351,9 +357,23 @@ def dispatch(vm: PcmRuntimeClientSync, cmd: BaseModel):
     if isinstance(cmd, Req_List):
         return vm.list(ListRequest(name=cmd.path))
     if isinstance(cmd, Req_Read):
-        return vm.read(ReadRequest(path=cmd.path, number=cmd.number, start_line=cmd.start_line, end_line=cmd.end_line))
+        return vm.read(
+            ReadRequest(
+                path=cmd.path,
+                number=cmd.number,
+                start_line=cmd.start_line,
+                end_line=cmd.end_line,
+            )
+        )
     if isinstance(cmd, Req_Write):
-        return vm.write(WriteRequest(path=cmd.path, content=cmd.content, start_line=cmd.start_line, end_line=cmd.end_line))
+        return vm.write(
+            WriteRequest(
+                path=cmd.path,
+                content=cmd.content,
+                start_line=cmd.start_line,
+                end_line=cmd.end_line,
+            )
+        )
     if isinstance(cmd, Req_Delete):
         return vm.delete(DeleteRequest(path=cmd.path))
     if isinstance(cmd, Req_MkDir):
@@ -361,7 +381,13 @@ def dispatch(vm: PcmRuntimeClientSync, cmd: BaseModel):
     if isinstance(cmd, Req_Move):
         return vm.move(MoveRequest(from_name=cmd.from_name, to_name=cmd.to_name))
     if isinstance(cmd, ReportTaskCompletion):
-        return vm.answer(AnswerRequest(message=cmd.message, outcome=OUTCOME_BY_NAME[cmd.outcome], refs=cmd.grounding_refs))
+        return vm.answer(
+            AnswerRequest(
+                message=cmd.message,
+                outcome=OUTCOME_BY_NAME[cmd.outcome],
+                refs=cmd.grounding_refs,
+            )
+        )
 
     raise ValueError(f"Unknown command: {cmd}")
 
@@ -413,21 +439,23 @@ def run_agent(model: str, harness_url: str, task_text: str) -> str | None:
             try:
                 retry_msgs = messages
                 if attempt > 0:
-                    retry_msgs = messages + [{
-                        "role": "user",
-                        "content": (
-                            "FORMAT CORRECTION: Your previous response was not valid JSON. "
-                            "You MUST respond with EXACTLY this structure (action goes INSIDE \"function\", "
-                            "not at the top level):\n"
-                            "{\n"
-                            "  \"current_state\": \"<one sentence>\",\n"
-                            "  \"plan_remaining_steps_brief\": [\"<next step>\"],\n"
-                            "  \"task_completed\": false,\n"
-                            "  \"function\": { <your action object with tool field here> }\n"
-                            "}\n"
-                            "No markdown code fences. No explanation. Only the raw JSON object."
-                        ),
-                    }]
+                    retry_msgs = messages + [
+                        {
+                            "role": "user",
+                            "content": (
+                                "FORMAT CORRECTION: Your previous response was not valid JSON. "
+                                'You MUST respond with EXACTLY this structure (action goes INSIDE "function", '
+                                "not at the top level):\n"
+                                "{\n"
+                                '  "current_state": "<one sentence>",\n'
+                                '  "plan_remaining_steps_brief": ["<next step>"],\n'
+                                '  "task_completed": false,\n'
+                                '  "function": { <your action object with tool field here> }\n'
+                                "}\n"
+                                "No markdown code fences. No explanation. Only the raw JSON object."
+                            ),
+                        }
+                    ]
                 job = call_llm(strategy.system_prompt, retry_msgs, model)
                 break
             except Exception as exc:
@@ -438,16 +466,20 @@ def run_agent(model: str, harness_url: str, task_text: str) -> str | None:
 
         print(job.plan_remaining_steps_brief[0], f"({elapsed_ms} ms)\n  {job.function}")
 
-        messages.append({
-            "role": "assistant",
-            "content": job.model_dump_json(),
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": job.model_dump_json(),
+            }
+        )
 
         cmd = job.function
 
         # ── DEFEND: action-gate destructive operations ────────────
         if isinstance(cmd, (Req_Delete, Req_Move)):
-            gate_msg = action_gate_message(cmd.tool, getattr(cmd, "path", getattr(cmd, "from_name", "")))
+            gate_msg = action_gate_message(
+                cmd.tool, getattr(cmd, "path", getattr(cmd, "from_name", ""))
+            )
             print(f"{CLI_YELLOW}GATE{CLI_CLR}: {gate_msg}")
             messages.append({"role": "user", "content": gate_msg})
 

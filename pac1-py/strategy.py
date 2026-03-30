@@ -13,7 +13,6 @@ from typing import Literal
 
 from classify import TaskClassification
 
-
 SecurityPosture = Literal["standard", "hardened", "paranoid"]
 
 
@@ -41,12 +40,12 @@ _HINT = os.environ.get("HINT", "")
 
 _STRATEGY_TABLE: dict[str, tuple[int, SecurityPosture, bool]] = {
     #                    max_steps  security_posture  pre_submit_verify
-    "security_test":    (8,         "paranoid",       False),
-    "crud":             (10,        "standard",       True),
-    "crud_delete":      (12,        "hardened",       True),
-    "search":           (15,        "standard",       True),
-    "analysis":         (20,        "standard",       True),
-    "multi_step":       (25,        "standard",       True),
+    "security_test": (8, "paranoid", False),
+    "crud": (10, "standard", True),
+    "crud_delete": (12, "hardened", True),
+    "search": (15, "standard", True),
+    "analysis": (20, "standard", True),
+    "multi_step": (25, "standard", True),
 }
 
 
@@ -55,13 +54,15 @@ def decide_strategy(classification: TaskClassification) -> ExecutionStrategy:
     # Reload prompts fresh each call so A-Evolve workspace mutations take effect
     base_prompt = _load("prompts/system.md")
     if not base_prompt:
-        logging.warning("workspace/prompts/system.md is empty or missing — agent will have no system prompt")
+        logging.warning(
+            "workspace/prompts/system.md is empty or missing — agent will have no system prompt"
+        )
     security_addon = _load("prompts/fragments/security.md")
     addons = {
-        "crud":         _load("prompts/fragments/crud.md"),
-        "search":       _load("prompts/fragments/search.md"),
-        "analysis":     _load("prompts/fragments/analysis.md"),
-        "multi_step":   _load("prompts/fragments/multi_step.md"),
+        "crud": _load("prompts/fragments/crud.md"),
+        "search": _load("prompts/fragments/search.md"),
+        "analysis": _load("prompts/fragments/analysis.md"),
+        "multi_step": _load("prompts/fragments/multi_step.md"),
         "security_test": security_addon,
     }
 

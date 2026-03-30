@@ -4,7 +4,7 @@ import json
 import re
 import subprocess
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -12,6 +12,7 @@ DOCS = REPO_ROOT / "docs"
 
 
 # ── Data models ──────────────────────────────────────────────────────────────
+
 
 @dataclass
 class TaskScore:
@@ -24,18 +25,18 @@ class TaskScore:
 
 @dataclass
 class EvalReport:
-    timestamp: str          # "2026-03-30-07"
+    timestamp: str  # "2026-03-30-07"
     dt: datetime
-    verdict: str            # IMPROVED | NEUTRAL | REGRESSED | IMPROVED_WITH_REGRESSION
-    score_pct: float        # 68.0
-    tasks_passed: int       # 17
-    delta_pct: float        # +8.0
+    verdict: str  # IMPROVED | NEUTRAL | REGRESSED | IMPROVED_WITH_REGRESSION
+    score_pct: float  # 68.0
+    tasks_passed: int  # 17
+    delta_pct: float  # +8.0
     tasks: list
     model: str
     log_path: str
-    fix_attribution: str        # full Fix Attribution section text
+    fix_attribution: str  # full Fix Attribution section text
     consistently_failing: list  # [{"task": "t21", "cause": "PROTOCOL", "notes": "..."}]
-    next_priorities: list       # ["t21 (PROTOCOL): ...", "t03 (SIDE_EFFECT): ..."]
+    next_priorities: list  # ["t21 (PROTOCOL): ...", "t03 (SIDE_EFFECT): ..."]
 
 
 @dataclass
@@ -43,14 +44,14 @@ class AnalysisReport:
     timestamp: str
     dt: datetime
     target_task: str
-    category: str           # STAGNATION | PROTOCOL | SECURITY | etc.
-    summary: str            # first line of Observation section
+    category: str  # STAGNATION | PROTOCOL | SECURITY | etc.
+    summary: str  # first line of Observation section
 
 
 @dataclass
 class AttackResult:
     number: int
-    rating: str             # BLOCKED | PARTIAL | BYPASSES
+    rating: str  # BLOCKED | PARTIAL | BYPASSES
     target: str
 
 
@@ -70,19 +71,20 @@ class OptReport:
 
 @dataclass
 class RunRecord:
-    timestamp: str          # ISO 8601: "2026-03-30T09:00:00+00:00"
+    timestamp: str  # ISO 8601: "2026-03-30T09:00:00+00:00"
     dt: datetime
     model: str
     score_pct: float
     tasks_passed: int
     tasks_total: int
-    tasks: dict             # {task_id: {"score": float, "score_detail": list[str]}}
+    tasks: dict  # {task_id: {"score": float, "score_detail": list[str]}}
 
 
 RUN_HISTORY_PATH = REPO_ROOT / "docs" / "run_history.json"
 
 
 # ── Timestamp parsing ─────────────────────────────────────────────────────────
+
 
 def _parse_ts(stem: str) -> tuple:
     """Extract YYYY-MM-DD-HH from filename stem."""
@@ -95,6 +97,7 @@ def _parse_ts(stem: str) -> tuple:
 
 
 # ── Eval report parser ────────────────────────────────────────────────────────
+
 
 def parse_eval_report(path: Path) -> EvalReport:
     text = path.read_text()
@@ -114,10 +117,7 @@ def parse_eval_report(path: Path) -> EvalReport:
         r"\|\s*(t\d+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([+-]?[\d.]+)\s*\|\s*([^|\n]+)",
         text,
     )
-    tasks = [
-        TaskScore(r[0], float(r[1]), float(r[2]), float(r[3]), r[4].strip())
-        for r in rows
-    ]
+    tasks = [TaskScore(r[0], float(r[1]), float(r[2]), float(r[3]), r[4].strip()) for r in rows]
 
     model_m = re.search(r"Model:\s*(.+)", text)
     model = model_m.group(1).strip() if model_m else "unknown"
@@ -126,9 +126,7 @@ def parse_eval_report(path: Path) -> EvalReport:
     log_path = log_m.group(1).strip() if log_m else ""
 
     # Fix Attribution section
-    fix_attr_m = re.search(
-        r"## Fix Attribution\s*\n(.*?)(?=\n## |\Z)", text, re.DOTALL
-    )
+    fix_attr_m = re.search(r"## Fix Attribution\s*\n(.*?)(?=\n## |\Z)", text, re.DOTALL)
     fix_attribution = fix_attr_m.group(1).strip() if fix_attr_m else ""
 
     # Consistently Failing table
@@ -140,17 +138,17 @@ def parse_eval_report(path: Path) -> EvalReport:
             text[cf_start:],
         )
         for r in cf_rows:
-            consistently_failing.append({
-                "task": r[0].strip(),
-                "cause": r[1].strip(),
-                "notes": r[2].strip(),
-            })
+            consistently_failing.append(
+                {
+                    "task": r[0].strip(),
+                    "cause": r[1].strip(),
+                    "notes": r[2].strip(),
+                }
+            )
 
     # Next Cycle Priorities
     next_priorities = []
-    prio_m = re.search(
-        r"## Next Cycle Priorities\s*\n(.*?)(?=\n## |\Z)", text, re.DOTALL
-    )
+    prio_m = re.search(r"## Next Cycle Priorities\s*\n(.*?)(?=\n## |\Z)", text, re.DOTALL)
     if prio_m:
         for line in prio_m.group(1).strip().split("\n"):
             line = line.strip()
@@ -158,12 +156,23 @@ def parse_eval_report(path: Path) -> EvalReport:
                 next_priorities.append(re.sub(r"^\d+\.\s*", "", line))
 
     return EvalReport(
-        ts, dt, verdict, score_pct, tasks_passed, delta_pct,
-        tasks, model, log_path, fix_attribution, consistently_failing, next_priorities,
+        ts,
+        dt,
+        verdict,
+        score_pct,
+        tasks_passed,
+        delta_pct,
+        tasks,
+        model,
+        log_path,
+        fix_attribution,
+        consistently_failing,
+        next_priorities,
     )
 
 
 # ── Analysis report parser ────────────────────────────────────────────────────
+
 
 def parse_analysis_report(path: Path) -> AnalysisReport:
     text = path.read_text()
@@ -183,6 +192,7 @@ def parse_analysis_report(path: Path) -> AnalysisReport:
 
 # ── Red team report parser ────────────────────────────────────────────────────
 
+
 def parse_redteam_report(path: Path) -> RedTeamReport:
     text = path.read_text()
     ts, dt = _parse_ts(path.stem)
@@ -191,16 +201,19 @@ def parse_redteam_report(path: Path) -> RedTeamReport:
     for i, block in enumerate(re.split(r"## Attack \d+", text)[1:], start=1):
         rating_m = re.search(r"\*\*Rating\*\*:\s*(\w+)", block)
         target_m = re.search(r"\*\*Target\*\*:\s*(.+)", block)
-        attacks.append(AttackResult(
-            number=i,
-            rating=rating_m.group(1) if rating_m else "UNKNOWN",
-            target=target_m.group(1).strip()[:80] if target_m else "",
-        ))
+        attacks.append(
+            AttackResult(
+                number=i,
+                rating=rating_m.group(1) if rating_m else "UNKNOWN",
+                target=target_m.group(1).strip()[:80] if target_m else "",
+            )
+        )
 
     return RedTeamReport(ts, dt, attacks)
 
 
 # ── Optimization report parser ────────────────────────────────────────────────
+
 
 def parse_opt_report(path: Path) -> OptReport:
     text = path.read_text()
@@ -253,15 +266,17 @@ def load_run_history() -> list:
                 dt = datetime.fromisoformat(ts)
             except Exception:
                 dt = datetime(2026, 1, 1)
-            records.append(RunRecord(
-                timestamp=ts,
-                dt=dt,
-                model=entry.get("model", "unknown"),
-                score_pct=float(entry.get("score_pct", 0.0)),
-                tasks_passed=int(entry.get("tasks_passed", 0)),
-                tasks_total=int(entry.get("tasks_total", 25)),
-                tasks=entry.get("tasks", {}),
-            ))
+            records.append(
+                RunRecord(
+                    timestamp=ts,
+                    dt=dt,
+                    model=entry.get("model", "unknown"),
+                    score_pct=float(entry.get("score_pct", 0.0)),
+                    tasks_passed=int(entry.get("tasks_passed", 0)),
+                    tasks_total=int(entry.get("tasks_total", 25)),
+                    tasks=entry.get("tasks", {}),
+                )
+            )
         except Exception:
             continue
     return sorted(records, key=lambda r: r.dt)
@@ -269,11 +284,12 @@ def load_run_history() -> list:
 
 # ── Git log ───────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class GitCommit:
     hash: str
     message: str
-    commit_type: str        # "feat", "fix", "perf", "docs", etc.
+    commit_type: str  # "feat", "fix", "perf", "docs", etc.
 
 
 def load_git_log(limit: int = 30) -> list:
@@ -281,7 +297,9 @@ def load_git_log(limit: int = 30) -> list:
     try:
         result = subprocess.run(
             ["git", "log", "--oneline", f"-{limit}"],
-            capture_output=True, text=True, cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            cwd=str(REPO_ROOT),
             timeout=5,
         )
         if result.returncode != 0:
@@ -305,6 +323,7 @@ def load_git_log(limit: int = 30) -> list:
 
 
 # ── Loaders ───────────────────────────────────────────────────────────────────
+
 
 def load_eval_reports() -> list:
     reports = []
