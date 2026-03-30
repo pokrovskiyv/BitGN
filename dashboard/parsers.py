@@ -322,6 +322,109 @@ def load_git_log(limit: int = 30) -> list:
     return commits
 
 
+# ── Aggregators ──────────────────────────────────────────────────────────────
+
+
+def build_task_lifecycle(
+    task_id: str,
+    evals: list,
+    analyses: list,
+    redteams: list,
+    task_cache: dict,
+    latest_trace,
+) -> "TaskLifecycle":
+    """Join all data sources into a single TaskLifecycle for one task."""
+    from narratives import TaskLifecycle, generate_task_narrative
+
+    # Score history from eval reports (primary multi-run source)
+    score_history = []
+    for e in evals:
+        for t in e.tasks:
+            if t.task_id == task_id:
+                score_history.append((e.timestamp, t.curr))
+                break
+
+    passes = sum(1 for _, s in score_history if s >= 1.0)
+    total = len(score_history)
+    pass_rate = passes / total if total > 0 else 0.0
+    stability = f"{passes}/{total}" if total > 0 else "—"
+    current_score = score_history[-1][1] if score_history else 0.0
+
+    # Task cache data
+    cached = task_cache.get(task_id, {})
+    instruction = cached.get("instruction", "")
+    score_detail = cached.get("score_detail", [])
+
+    # Classification from latest trace
+    category = latest_trace.task_type if latest_trace else "unknown"
+    threat = latest_trace.threat if latest_trace else "none"
+
+    # Agent answer from latest trace
+    answer_message = latest_trace.answer_message if latest_trace else ""
+    answer_outcome = latest_trace.answer_outcome if latest_trace else ""
+    answer_steps = latest_trace.answer_steps if latest_trace else []
+
+    # Cycles that targeted this task
+    cycles_targeting = [
+        {
+            "timestamp": a.timestamp,
+            "category": a.category,
+            "observation": a.summary,
+        }
+        for a in analyses
+        if a.target_task == task_id
+    ]
+
+    # Fix attribution from evals mentioning this task
+    fixes_applied = []
+    for e in evals:
+        if e.fix_attribution and task_id in e.fix_attribution:
+            fixes_applied.append(f"{e.timestamp}: {e.fix_attribution[:100]}")
+
+    # Red team mentions
+    redteam_mentions = []
+    for rt in redteams:
+        for a in rt.attacks:
+            if task_id in (a.target or ""):
+                redteam_mentions.append(f"{rt.timestamp}: {a.rating} — {a.target[:60]}")
+
+    lifecycle = TaskLifecycle(
+        task_id=task_id,
+        instruction=instruction,
+        current_score=current_score,
+        stability=stability,
+        pass_rate=pass_rate,
+        category=category,
+        threat=threat,
+        answer_message=answer_message,
+        answer_outcome=answer_outcome,
+        answer_steps=answer_steps,
+        score_detail=score_detail,
+        score_history=score_history,
+        cycles_targeting=cycles_targeting,
+        fixes_applied=fixes_applied,
+        redteam_mentions=redteam_mentions,
+        narrative="",
+    )
+    lifecycle.narrative = generate_task_narrative(lifecycle)
+    return lifecycle
+
+
+def build_run_digests(
+    evals: list,
+    analyses: list,
+    git_commits: list,
+) -> list:
+    """Build RunDigest for each eval report."""
+    from narratives import generate_run_narrative
+
+    digests = []
+    for i, e in enumerate(evals):
+        prev = evals[i - 1] if i > 0 else None
+        digests.append(generate_run_narrative(e, prev, analyses, git_commits))
+    return digests
+
+
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
 

@@ -37,6 +37,55 @@ class TaskTrace:
     total_time_ms: int
     step_count: int
     events_summary: dict
+    # Agent answer fields (from report_completion)
+    answer_outcome: str
+    answer_message: str
+    answer_steps: list  # completed_steps_laconic
+    answer_grounding_refs: list
+
+
+def _extract_answer(block: str) -> tuple:
+    """Extract agent answer from report_completion in a task block.
+
+    Returns (outcome, message, completed_steps, grounding_refs).
+    """
+    # Try structured report_completion line first
+    rc_m = re.search(r"tool='report_completion'(.+?)(?:\n|$)", block)
+    if rc_m:
+        line = rc_m.group(1)
+        outcome_m = re.search(r"outcome='([^']+)'", line)
+        msg_m = re.search(r"message='([^']*(?:''[^']*)*)'", line)
+        # For message with internal quotes, try a broader match
+        if not msg_m:
+            msg_m = re.search(r'message="([^"]*)"', line)
+        if not msg_m:
+            msg_m = re.search(r"message='(.+?)'\s+grounding_refs=", line)
+        steps_m = re.search(r"completed_steps_laconic=\[([^\]]*)\]", line)
+        refs_m = re.search(r"grounding_refs=\[([^\]]*)\]", line)
+
+        outcome = outcome_m.group(1) if outcome_m else ""
+        message = msg_m.group(1) if msg_m else ""
+        steps_raw = steps_m.group(1) if steps_m else ""
+        refs_raw = refs_m.group(1) if refs_m else ""
+
+        completed_steps = [s.strip().strip("'\"") for s in steps_raw.split("',") if s.strip()]
+        grounding_refs = [r.strip().strip("'\"") for r in refs_raw.split("',") if r.strip()]
+
+        return outcome, message, completed_steps, grounding_refs
+
+    # Fallback: parse "agent OUTCOME_..." line + Summary block
+    agent_m = re.search(r"agent (OUTCOME_\w+)\.\s*Summary:\s*\n((?:- .+\n)*)", block)
+    if agent_m:
+        outcome = agent_m.group(1)
+        summary_lines = [
+            line.strip().lstrip("- ")
+            for line in agent_m.group(2).strip().split("\n")
+            if line.strip()
+        ]
+        message = "; ".join(summary_lines)
+        return outcome, message, summary_lines, []
+
+    return "", "", [], []
 
 
 def parse_benchmark_log(path: Path) -> list:
@@ -116,6 +165,9 @@ def parse_benchmark_log(path: Path) -> list:
 
         total_time = sum(s.timing_ms for s in steps)
 
+        # Extract agent answer from report_completion
+        answer_outcome, answer_message, answer_steps, answer_refs = _extract_answer(block)
+
         traces.append(
             TaskTrace(
                 task_id=task_id,
@@ -129,6 +181,10 @@ def parse_benchmark_log(path: Path) -> list:
                 total_time_ms=total_time,
                 step_count=len(steps),
                 events_summary=events_count,
+                answer_outcome=answer_outcome,
+                answer_message=answer_message,
+                answer_steps=answer_steps,
+                answer_grounding_refs=answer_refs,
             )
         )
 
