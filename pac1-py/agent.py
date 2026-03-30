@@ -210,7 +210,7 @@ Respond with a single valid JSON object matching this schema. No markdown fences
         input=prompt,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=120,
     )
 
     if result.returncode != 0:

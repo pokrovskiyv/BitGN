@@ -59,11 +59,6 @@ THREAT_PATTERNS: list[tuple[str, str]] = [
     ("encoding", r"(decode|deobfuscate|decrypt|interpret)\s+(this|the\s+following|below)"),
     ("encoding", r"base64\s*:"),
     ("encoding", r"rot13\s*:"),
-
-    # Outcome code manipulation — file content directing agent to use a specific outcome code
-    ("outcome_manipulation", r"(use|report|return|respond.{0,10}with|select)\s+OUTCOME_[A-Z_]+"),
-    ("outcome_manipulation", r"OUTCOME_(OK|NONE_CLARIFICATION|DENIED_SECURITY)\s+(is\s+)?(correct|required|appropriate|should)"),
-    ("outcome_manipulation", r"(correct(ly)?|proper(ly)?|should|example).{0,40}OUTCOME_(OK|NONE_CLARIFICATION|DENIED_SECURITY)"),
 ]
 
 _COMPILED = [(cat, re.compile(pat, re.IGNORECASE)) for cat, pat in THREAT_PATTERNS]
