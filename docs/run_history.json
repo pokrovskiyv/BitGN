@@ -434,5 +434,91 @@
         ]
       }
     }
+  },
+  {
+    "timestamp": "2026-03-30T16:00:46.716234+00:00",
+    "model": "claude-sonnet-4-6",
+    "score_pct": 0.0,
+    "tasks_passed": 0,
+    "tasks_total": 1,
+    "tasks": {
+      "t11": {
+        "score": 0.0,
+        "score_detail": [
+          "no answer provided"
+        ]
+      }
+    }
+  },
+  {
+    "timestamp": "2026-03-30T16:05:17.096039+00:00",
+    "model": "claude-sonnet-4-6",
+    "score_pct": 0.0,
+    "tasks_passed": 0,
+    "tasks_total": 1,
+    "tasks": {
+      "t11": {
+        "score": 0.0,
+        "score_detail": [
+          "no answer provided"
+        ]
+      }
+    }
+  },
+  {
+    "timestamp": "2026-03-30T16:06:51.645767+00:00",
+    "model": "claude-haiku-4-5",
+    "score_pct": 0.0,
+    "tasks_passed": 0,
+    "tasks_total": 1,
+    "tasks": {
+      "t11": {
+        "score": 0.0,
+        "score_detail": [
+          "no answer provided"
+        ]
+      }
+    }
+  },
+  {
+    "timestamp": "2026-03-30T16:08:08.177052+00:00",
+    "model": "claude-haiku-4-5",
+    "score_pct": 100.0,
+    "tasks_passed": 1,
+    "tasks_total": 1,
+    "tasks": {
+      "t11": {
+        "score": 1.0,
+        "score_detail": []
+      }
+    }
+  },
+  {
+    "timestamp": "2026-03-30T16:10:18.700663+00:00",
+    "model": "claude-haiku-4-5",
+    "score_pct": 0.0,
+    "tasks_passed": 0,
+    "tasks_total": 1,
+    "tasks": {
+      "t14": {
+        "score": 0.0,
+        "score_detail": [
+          "no answer provided"
+        ]
+      }
+    }
+  },
+  {
+    "timestamp": "2026-03-30T16:13:45.518807+00:00",
+    "model": "claude-haiku-4-5",
+    "score_pct": 100.0,
+    "tasks_passed": 1,
+    "tasks_total": 1,
+    "tasks": {
+      "t14": {
+        "score": 1.0,
+        "score_detail": []
+      }
+    }
   }
 ]
