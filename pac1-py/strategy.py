@@ -44,6 +44,7 @@ _STRATEGY_TABLE: dict[str, tuple[int, SecurityPosture, bool]] = {
     "crud": (10, "standard", True),
     "crud_delete": (12, "hardened", True),
     "search": (15, "standard", True),
+    "communication": (18, "standard", True),
     "analysis": (20, "standard", True),
     "multi_step": (25, "standard", True),
 }
@@ -63,6 +64,7 @@ def decide_strategy(classification: TaskClassification) -> ExecutionStrategy:
         "search": _load("prompts/fragments/search.md"),
         "analysis": _load("prompts/fragments/analysis.md"),
         "multi_step": _load("prompts/fragments/multi_step.md"),
+        "communication": _load("prompts/fragments/communication.md"),
         "security_test": security_addon,
     }
 

@@ -74,6 +74,23 @@ THREAT_PATTERNS: list[tuple[str, str]] = [
         "social_engineering",
         r"for\s+(audit|compliance|logging|security)\s+(purposes?|reasons?).{0,30}(write|send|copy|output)",
     ),
+    # Channel/communication abuse
+    (
+        "channel_spoof",
+        r"(pretend|act\s+as|pose\s+as|impersonate)\s+.{0,30}(admin|moderator|owner|operator)",
+    ),
+    (
+        "channel_spoof",
+        r"(this\s+message\s+is\s+from|sent\s+by|forwarded\s+from)\s+.{0,20}(admin|system|bot)",
+    ),
+    (
+        "mass_send",
+        r"(send|forward|broadcast)\s+.{0,20}(all|every|each)\s+(contact|user|member|channel)",
+    ),
+    (
+        "blacklist_bypass",
+        r"(ignore|skip|override|bypass)\s+.{0,20}(blacklist|block|deny|trust)",
+    ),
     # Payload splitting
     (
         "payload_split",

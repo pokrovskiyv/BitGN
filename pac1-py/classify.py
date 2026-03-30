@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-TaskType = Literal["crud", "search", "multi_step", "analysis", "security_test"]
+TaskType = Literal["crud", "search", "multi_step", "analysis", "security_test", "communication"]
 ThreatLevel = Literal["none", "low", "high"]
 
 
@@ -39,6 +39,12 @@ _MULTI_STEP_SIGNALS = re.compile(
     r"\b(then|after\s+that|next|also|and\s+then|finally|first.*then|step\s+\d|process)\b",
     re.IGNORECASE,
 )
+_COMMUNICATION_SIGNALS = re.compile(
+    r"\b(email|e-mail|send\s+(email|message|follow[- ]?up|reminder)|"
+    r"write\s+(email|message)|reply\s+to|forward\s+to|"
+    r"outbox|outbound|channel|discord|telegram|slack)\b",
+    re.IGNORECASE,
+)
 
 
 def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassification:
@@ -48,6 +54,7 @@ def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassificat
     has_search = bool(_SEARCH_SIGNALS.search(task_text))
     has_analysis = bool(_ANALYSIS_SIGNALS.search(task_text))
     has_multi_step = bool(_MULTI_STEP_SIGNALS.search(task_text))
+    has_communication = bool(_COMMUNICATION_SIGNALS.search(task_text))
 
     # Threat level from defend.py scan results
     threat_level: ThreatLevel = "none"
@@ -92,6 +99,16 @@ def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassificat
             threat_level=threat_level,
             requires_write=False,
             requires_delete=False,
+        )
+
+    # Communication — email, message, channel operations
+    if has_communication:
+        return TaskClassification(
+            task_type="communication",
+            estimated_steps=15,
+            threat_level=threat_level,
+            requires_write=True,
+            requires_delete=has_delete,
         )
 
     # CRUD — default for write/delete/simple tasks
