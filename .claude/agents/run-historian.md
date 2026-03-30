@@ -30,6 +30,23 @@ print('Tasks:', latest['tasks_passed'], '/', latest['tasks_total'])
 If file missing or latest record absent → report `DATA_GAP` and stop. The Evaluator
 should investigate `pac1-py/main.py` — the `_append_run_history()` call may have failed.
 
+### 1.5. Verify log was saved
+
+Check that `docs/run_logs/run-YYYY-MM-DD-HH.log` exists for this run:
+
+```bash
+ls -la docs/run_logs/run-*.log | tail -1
+```
+
+If the log is missing, try to copy from `/tmp/` (legacy location):
+```bash
+# Find the most recent log in /tmp/ and copy it
+ls -t /tmp/cycle-run*.log /tmp/benchmark*.log 2>/dev/null | head -1
+```
+
+If the log is missing entirely, note `LOG_MISSING` in the report but continue with
+win rate analysis — log data is supplementary, not blocking.
+
 ### 2. Check run completeness
 
 A run is **complete** if `tasks_total >= 25`. Partial runs (from `make task TASKS='...'`)

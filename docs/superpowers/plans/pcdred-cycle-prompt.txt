@@ -64,7 +64,8 @@ OPTIMIZER (follow `agents/optimizer.md`):
 
 **5. EVALUATOR** (follow `agents/evaluator.md`):
 ```bash
-cd pac1-py && make run 2>&1 | tee /tmp/cycle-run.log
+TS=$(date -u +%Y-%m-%d-%H)
+cd pac1-py && make run 2>&1 | tee ../docs/run_logs/run-${TS}.log
 ```
 - Compare against the baseline noted in step 0
 - Write to `docs/eval/run-YYYY-MM-DD-HH.md`
