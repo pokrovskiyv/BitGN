@@ -8,6 +8,7 @@ Usage:
 
 import argparse
 import logging
+import os
 from pathlib import Path
 
 import agent_evolve as ae
@@ -49,7 +50,7 @@ def main() -> None:
         evolve_prompts=True,
         evolve_skills=True,
         evolve_memory=False,   # no episodic memory for per-task isolated VMs
-        evolver_model="claude-opus-4-6",
+        evolver_model=os.getenv("EVOLVER_MODEL", "claude-opus-4-5"),
     )
 
     engine = AdaptiveEvolveEngine(config=config)

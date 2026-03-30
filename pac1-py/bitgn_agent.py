@@ -10,8 +10,8 @@ BitgnBenchmarkAdapter.evaluate() extracts the score from conversation[0]
 without making another API call.
 """
 
+import logging
 import os
-import sys
 from pathlib import Path
 
 from bitgn.harness_connect import HarnessServiceClientSync
@@ -50,7 +50,7 @@ class BitgnAgent(BaseAgent):
         try:
             run_agent(self._model, trial.harness_url, trial.instruction)
         except Exception as exc:
-            print(f"run_agent error on {task.id}: {exc}", file=sys.stderr)
+            logging.error("run_agent error on task %s: %s", task.id, exc)
 
         result = self._harness_client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
 
