@@ -178,6 +178,19 @@ def _format_history(messages: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
+def _strip_insight_blocks(text: str) -> str:
+    """Strip Claude Code hook-injected insight blocks from subprocess responses.
+
+    The user's explanatory mode sessionStart hook injects blocks of the form:
+        `★ Insight ─────...─────`
+        [content]
+        `─────...─────`
+    into claude -p subprocess responses. These non-JSON lines break JSON extraction
+    and cause context loss when the retry loop fires.
+    """
+    return re.sub(r"`★ Insight\s*[─\-]+`.*?`[─\-]+`\n?", "", text, flags=re.DOTALL).strip()
+
+
 def _extract_json(text: str) -> str:
     """Extract JSON object from text that might have markdown fences or preamble."""
     text = text.strip()
@@ -226,7 +239,7 @@ Respond with a single valid JSON object matching this schema. No markdown fences
         raise RuntimeError(f"claude -p failed: {result.stderr}")
 
     response = json.loads(result.stdout)
-    raw_text = response.get("result", "")
+    raw_text = _strip_insight_blocks(response.get("result", ""))
 
     return NextStep.model_validate_json(_extract_json(raw_text))
 
