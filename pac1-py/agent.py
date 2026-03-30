@@ -415,9 +415,14 @@ def run_agent(model: str, harness_url: str, task_text: str) -> None:
                         "role": "user",
                         "content": (
                             "FORMAT CORRECTION: Your previous response was not valid JSON. "
-                            "You MUST respond with a single JSON object containing exactly these fields: "
-                            "current_state (string), plan_remaining_steps_brief (array of 1-5 strings), "
-                            "task_completed (boolean), function (the action object with a 'tool' field). "
+                            "You MUST respond with EXACTLY this structure (action goes INSIDE \"function\", "
+                            "not at the top level):\n"
+                            "{\n"
+                            "  \"current_state\": \"<one sentence>\",\n"
+                            "  \"plan_remaining_steps_brief\": [\"<next step>\"],\n"
+                            "  \"task_completed\": false,\n"
+                            "  \"function\": { <your action object with tool field here> }\n"
+                            "}\n"
                             "No markdown code fences. No explanation. Only the raw JSON object."
                         ),
                     }]
