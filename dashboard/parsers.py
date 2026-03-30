@@ -3,7 +3,7 @@
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -62,6 +62,20 @@ class OptReport:
     timestamp: str
     dt: datetime
     recommendations: list
+
+
+@dataclass
+class RunRecord:
+    timestamp: str          # ISO 8601: "2026-03-30T09:00:00+00:00"
+    dt: datetime
+    model: str
+    score_pct: float
+    tasks_passed: int
+    tasks_total: int
+    tasks: dict             # {task_id: {"score": float, "score_detail": list[str]}}
+
+
+RUN_HISTORY_PATH = REPO_ROOT / "docs" / "run_history.json"
 
 
 # ── Timestamp parsing ─────────────────────────────────────────────────────────
@@ -123,7 +137,7 @@ def parse_analysis_report(path: Path) -> AnalysisReport:
     category = cat_m.group(1) if cat_m else "UNKNOWN"
 
     obs_m = re.search(r"## Observation\s*\n+(.+?)(?:\n\n|\Z)", text, re.DOTALL)
-    summary = obs_m.group(1).strip().split("\n")[0][:120] if obs_m else ""
+    summary = obs_m.group(1).strip() if obs_m else ""
 
     return AnalysisReport(ts, dt, target_task, category, summary)
 
@@ -154,7 +168,7 @@ def parse_opt_report(path: Path) -> OptReport:
     ts, dt = _parse_ts(path.stem)
 
     recs = re.findall(r"\*\*Recommendation\*\*:\s*(.+)", text)
-    short_recs = [r.strip()[:100] for r in recs[:6]]
+    short_recs = [r.strip() for r in recs[:6]]
 
     return OptReport(ts, dt, short_recs)
 
@@ -176,6 +190,42 @@ def load_task_cache() -> dict:
         return json.loads(TASK_CACHE_PATH.read_text())
     except Exception:
         return {}
+
+
+def load_run_history() -> list:
+    """Load docs/run_history.json — append-only list of complete run records.
+
+    Returns list[RunRecord] sorted oldest-first.
+    """
+    if not RUN_HISTORY_PATH.exists():
+        return []
+    try:
+        raw = json.loads(RUN_HISTORY_PATH.read_text())
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+
+    records = []
+    for entry in raw:
+        try:
+            ts = entry.get("timestamp", "")
+            try:
+                dt = datetime.fromisoformat(ts)
+            except Exception:
+                dt = datetime(2026, 1, 1)
+            records.append(RunRecord(
+                timestamp=ts,
+                dt=dt,
+                model=entry.get("model", "unknown"),
+                score_pct=float(entry.get("score_pct", 0.0)),
+                tasks_passed=int(entry.get("tasks_passed", 0)),
+                tasks_total=int(entry.get("tasks_total", 25)),
+                tasks=entry.get("tasks", {}),
+            ))
+        except Exception:
+            continue
+    return sorted(records, key=lambda r: r.dt)
 
 
 # ── Loaders ───────────────────────────────────────────────────────────────────
