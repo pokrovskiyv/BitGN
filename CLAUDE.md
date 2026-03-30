@@ -33,6 +33,7 @@ There are no test frameworks, linters, or CI pipelines in this repo. Testing is 
 | `BENCHMARK_ID` | `bitgn/pac1-dev` (pac1 only) | Benchmark to run |
 | `HINT` | empty | Extra text appended to pac1 system prompt |
 | `ANTHROPIC_API_KEY` | — | Required when `LLM_BACKEND=api` |
+| `EVOLVER_MODEL` | `claude-opus-4-5` | LLM used by A-Evolve for workspace mutations |
 
 ## Architecture
 
@@ -43,11 +44,39 @@ There are no test frameworks, linters, or CI pipelines in this repo. Testing is 
 
 Both are flat single-directory projects by design (see `AICODE-NOTE` comments in pyproject.toml).
 
+### pac1-py Module Structure (PCDRED pipeline)
+
+```
+pac1-py/
+├── agent.py           # PCDRED runtime loop, dispatch, LLM backends, output formatting
+├── classify.py        # TaskClassification model + classify_task() — infers task type from instruction
+├── strategy.py        # ExecutionStrategy + decide_strategy() — selects prompt + step budget per type
+├── defend.py          # THREAT_PATTERNS, scan_content(), wrap_tool_output() — injection defense
+├── verify.py          # pre_submit_verify(), StagnationDetector, WriteTracker, action_gate_message()
+├── main.py            # Entry point
+├── bitgn_agent.py     # A-Evolve BaseAgent wrapper (solve() → BitGN trial)
+├── bitgn_benchmark.py # A-Evolve BenchmarkAdapter (get_tasks(), evaluate())
+├── evolve.py          # A-Evolve runner CLI (--cycles, --batch-size, --dry-run)
+└── workspace/
+    ├── prompts/
+    │   ├── system.md              # Base system prompt (loaded fresh per call)
+    │   └── fragments/
+    │       ├── crud.md            # Prompt addon for CRUD tasks
+    │       ├── search.md          # Prompt addon for search tasks
+    │       ├── analysis.md        # Prompt addon for analysis tasks
+    │       ├── multi_step.md      # Prompt addon for multi-step tasks
+    │       └── security.md        # Prompt addon for security tasks
+    ├── skills/                    # A-Evolve skill files (evolved)
+    └── memory/                    # A-Evolve memory files (evolved)
+```
+
+Each module is < 200 lines, single responsibility. `strategy.py` loads prompts from `workspace/prompts/` **fresh on every call** so A-Evolve mutations take effect without restart.
+
 ### Agent Loop Pattern (shared across both)
 
 1. **Auto-init**: Read filesystem structure, `AGENTS.md`, and context before task
 2. **Task injection**: Add task instruction to message history
-3. **Reasoning loop** (max 30 steps): LLM → `NextStep` (Pydantic) → `dispatch()` → Protobuf RPC to VM → format result → append to history
+3. **Reasoning loop** (step budget varies by task type: 8–25): LLM → `NextStep` (Pydantic) → `dispatch()` → Protobuf RPC to VM → `wrap_tool_output()` → append to history
 4. **Completion**: `ReportTaskCompletion` with outcome code, summary, and grounding refs
 
 ### Key Design Decisions
@@ -57,6 +86,20 @@ Both are flat single-directory projects by design (see `AICODE-NOTE` comments in
 - **Unix-style output formatting**: Tool results are formatted as fake CLI commands (`tree`, `cat`, `sed`, `rg`) to ground the agent in recognizable patterns. Only pac1 does this; sandbox returns raw JSON.
 - **Stateless conversation replay**: Full message history sent on each LLM call. No session state.
 - **Protobuf RPC via ConnectRPC**: Type-safe communication with the BitGN VM. SDK is generated from Buf schema — pins in pyproject.toml are auto-updated by `harness_core/scripts/sdk-python.sh` after `buf push`.
+
+### A-Evolve Integration
+
+`evolve.py` wraps pac1-py as an A-Evolve agent and runs automated evolution cycles:
+
+```bash
+# Dry run — list tasks and workspace info, no benchmark calls
+uv run python evolve.py --dry-run
+
+# Run N evolution cycles (default 5), mutating workspace/prompts/
+uv run python evolve.py --cycles 5 --batch-size 5
+```
+
+A-Evolve fetches tasks via `BitgnBenchmarkAdapter`, runs them via `BitgnAgent.solve()`, scores results, mutates `workspace/` files, and rolls back if score drops. Set `EVOLVER_MODEL` env var to control the mutation LLM (default: `claude-opus-4-5`).
 
 ### Key Design Principles
 
@@ -83,12 +126,26 @@ Challenge rules and docs live in `docs/challenge/`. `handbook.md` is the canonic
 
 ## Agent Team
 
-Five Claude Code subagents in `agents/` drive the development-time PCDRED cycle:
+Five Claude Code agents in `.claude/agents/` drive the development-time PCDRED cycle. Invoke via `claude --permission-mode acceptEdits -p "$(cat docs/superpowers/plans/pcdred-cycle-prompt.txt)"` or dispatch individually.
 
 | Agent | File | Role | Trigger |
 |-------|------|------|---------|
-| Analyst | `agents/analyst.md` | Perceive + Classify failures | After benchmark run |
-| Architect | `agents/architect.md` | Decide + Build fixes | After Analyst report |
-| Red Team | `agents/redteam.md` | Attack defenses | After Architect changes |
-| Optimizer | `agents/optimizer.md` | Tune + Trim waste | After benchmark run |
-| Evaluator | `agents/evaluator.md` | Run + Measure scores | After any code change |
+| Analyst | `.claude/agents/analyst.md` | Perceive + Classify failures → `docs/analysis/` | After benchmark run |
+| Architect | `.claude/agents/architect.md` | Decide + Build minimal fix | After Analyst report |
+| Red Team | `.claude/agents/red-team.md` | Attack defenses → `docs/redteam/` | After Architect changes |
+| Optimizer | `.claude/agents/optimizer.md` | Profile execution → `docs/optimization/` | After benchmark run |
+| Evaluator | `.claude/agents/evaluator.md` | Run benchmark + verdict → `docs/eval/` | After any code change |
+
+**Automated cycle loop** (runs 10 full PCDRED cycles, logs to `/tmp/pcdred-cycles/`):
+```bash
+cd ~/Projects/BitGN && mkdir -p /tmp/pcdred-cycles && \
+for i in $(seq 1 10); do
+  claude --model claude-sonnet-4-6 --permission-mode acceptEdits --max-turns 50 \
+    -p "$(cat docs/superpowers/plans/pcdred-cycle-prompt.txt)" 2>&1 | \
+  tee "/tmp/pcdred-cycles/cycle-$i-$(date -u +%Y%m%d-%H%M).log" && sleep 30
+done
+```
+
+Eval/analysis/redteam/optimization reports accumulate in `docs/`. The cycle prompt is at `docs/superpowers/plans/pcdred-cycle-prompt.txt`.
+
+**Design-time agent files** (role descriptions, not Claude Code agents): `agents/` at repo root.
