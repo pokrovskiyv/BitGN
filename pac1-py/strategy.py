@@ -84,12 +84,30 @@ def decide_strategy(classification: TaskClassification) -> ExecutionStrategy:
     elif classification.threat_level == "low" and security_posture == "standard":
         security_posture = "hardened"
 
-    # Compose prompt
+    # Compose prompt: base + task-type addon + always-on fragments + security + hints
     addon = addons.get(classification.task_type, "")
-    security_section = security_addon if security_posture in ("hardened", "paranoid") else ""
+    outcomes_addon = _load("prompts/fragments/outcomes.md")
+    reasoning_addon = _load("prompts/fragments/reasoning.md")
+    # Skip security_section for security_test — addon already includes it
+    if (
+        security_posture in ("hardened", "paranoid")
+        and classification.task_type != "security_test"
+    ):
+        security_section = security_addon
+    else:
+        security_section = ""
     hint_section = f"\n{_HINT}" if _HINT else ""
 
-    prompt = f"{base_prompt}{addon}{security_section}{hint_section}"
+    # Target hints from classify.py — inject as soft routing guidance
+    target_section = ""
+    if classification.target_hints:
+        hints_str = ", ".join(classification.target_hints)
+        target_section = f"\nTarget references from task: {hints_str}. Prioritize these."
+
+    prompt = (
+        f"{base_prompt}{addon}{outcomes_addon}{reasoning_addon}"
+        f"{target_section}{security_section}{hint_section}"
+    )
 
     return ExecutionStrategy(
         system_prompt=prompt,

@@ -100,6 +100,8 @@ THREAT_PATTERNS: list[tuple[str, str]] = [
         "payload_split",
         r"(when|if)\s+you\s+(encounter|see|find|read)\s+.{0,30}(keyword|phrase|marker|signal)",
     ),
+    # Format hijack (attacker plants agent's own retry message in file content)
+    ("format_hijack", r"FORMAT\s+CORRECTION\s*:"),
     # Encoding signals
     ("encoding", r"(decode|deobfuscate|decrypt|interpret)\s+(this|the\s+following|below)"),
     ("encoding", r"base64\s*:"),

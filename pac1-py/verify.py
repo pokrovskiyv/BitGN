@@ -11,28 +11,32 @@ from dataclasses import dataclass, field
 
 @dataclass
 class WriteTracker:
-    """Tracks files written during a task for read-after-write verification."""
+    """Tracks files written during a task for read-after-write verification.
 
-    written_paths: list[str] = field(default_factory=list)
-    read_paths: list[str] = field(default_factory=list)
+    Uses step counters so a read *before* a write doesn't count as verified.
+    """
+
+    _writes: dict[str, int] = field(default_factory=dict)  # path → step
+    _reads: dict[str, int] = field(default_factory=dict)  # path → step
+    _step: int = 0
 
     def record_write(self, path: str) -> None:
-        if path not in self.written_paths:
-            self.written_paths.append(path)
+        self._step += 1
+        self._writes[path] = self._step
 
     def record_read(self, path: str) -> None:
-        if path not in self.read_paths:
-            self.read_paths.append(path)
+        self._step += 1
+        self._reads[path] = self._step
 
     def unverified_writes(self) -> list[str]:
-        """Return paths that were written but not re-read after writing."""
-        return [p for p in self.written_paths if p not in self.read_paths]
+        """Return paths written but not re-read *after* the write."""
+        return [p for p, w in self._writes.items() if self._reads.get(p, 0) < w]
 
     def all_consulted_paths(self) -> list[str]:
         """Return all paths read or written — candidates for grounding_refs."""
         seen: set[str] = set()
         result: list[str] = []
-        for p in self.read_paths + self.written_paths:
+        for p in list(self._reads) + list(self._writes):
             if p not in seen:
                 seen.add(p)
                 result.append(p)

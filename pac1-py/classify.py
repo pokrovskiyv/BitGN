@@ -19,6 +19,7 @@ class TaskClassification:
     threat_level: ThreatLevel
     requires_write: bool
     requires_delete: bool
+    target_hints: tuple[str, ...] = ()
 
 
 # ── Keyword patterns ──────────────────────────────────────────────────────
@@ -46,9 +47,22 @@ _COMMUNICATION_SIGNALS = re.compile(
     re.IGNORECASE,
 )
 
+_PATH_HINTS = re.compile(
+    r"(?:(?:\b\w+/)+\w+(?:\.\w+)?)"  # path/to/file or path/to/dir
+    r"|(?:\b\w+\.(?:md|json|txt|yaml))"  # file.ext
+    r"|(?:outbox|inbox|contacts|calendar)",  # known directories
+    re.IGNORECASE,
+)
+
+
+def _extract_target_hints(task_text: str) -> tuple[str, ...]:
+    """Extract path/file references from task text for targeted routing."""
+    return tuple(dict.fromkeys(_PATH_HINTS.findall(task_text)))
+
 
 def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassification:
     """Classify a task instruction into a category for strategy selection."""
+    hints = _extract_target_hints(task_text)
     has_write = bool(_WRITE_SIGNALS.search(task_text))
     has_delete = bool(_DELETE_SIGNALS.search(task_text))
     has_search = bool(_SEARCH_SIGNALS.search(task_text))
@@ -69,6 +83,7 @@ def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassificat
             threat_level=threat_level,
             requires_write=has_write,
             requires_delete=has_delete,
+            target_hints=hints,
         )
 
     # Multi-step — explicit sequencing language
@@ -79,6 +94,7 @@ def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassificat
             threat_level=threat_level,
             requires_write=has_write,
             requires_delete=has_delete,
+            target_hints=hints,
         )
 
     # Analysis — summarize, compare, count
@@ -89,6 +105,7 @@ def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassificat
             threat_level=threat_level,
             requires_write=False,
             requires_delete=False,
+            target_hints=hints,
         )
 
     # Search — find, locate
@@ -99,6 +116,7 @@ def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassificat
             threat_level=threat_level,
             requires_write=False,
             requires_delete=False,
+            target_hints=hints,
         )
 
     # Communication — email, message, channel operations
@@ -109,6 +127,7 @@ def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassificat
             threat_level=threat_level,
             requires_write=True,
             requires_delete=has_delete,
+            target_hints=hints,
         )
 
     # CRUD — default for write/delete/simple tasks
@@ -118,4 +137,5 @@ def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassificat
         threat_level=threat_level,
         requires_write=has_write,
         requires_delete=has_delete,
+        target_hints=hints,
     )
