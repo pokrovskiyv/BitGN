@@ -23,3 +23,6 @@ url = "https://buf.build/gen/python"
 # `bitgn.vm.pcm_*`; if local pins predate that schema publication, rerun
 # `make sdk-python` from `harness_core` after pushing the latest API digest.
 package = false
+override-dependencies = [
+    "protobuf>=7.34.1",
+]
