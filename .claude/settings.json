@@ -1,0 +1,24 @@
+{
+  "model": "claude-sonnet-4-6",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash(cd pac1-py && make run*)",
+      "Bash(cd pac1-py && make task*)",
+      "Bash(cd pac1-py && uv run*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git status*)",
+      "Bash(git revert*)",
+      "Bash(ls *)",
+      "Bash(wc *)",
+      "Bash(cat *)"
+    ]
+  }
+}
