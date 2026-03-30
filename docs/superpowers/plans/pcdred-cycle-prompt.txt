@@ -70,14 +70,19 @@ cd pac1-py && make run 2>&1 | tee /tmp/cycle-run.log
 - Write to `docs/eval/run-YYYY-MM-DD-HH.md`
 - Verdict: IMPROVED / IMPROVED_WITH_REGRESSION / NEUTRAL / REGRESSED
 
-**6. DECISION GATE**:
+**6. DASHBOARD** (optional — skip if cycles are running rapidly):
+- Dispatch dashboard-updater agent to verify parser health after new eval report
+- Or open manually: `cd dashboard && make run` → http://localhost:8501
+- Dashboard auto-reads docs/ on each page load — no explicit data push needed
+
+**7. DECISION GATE**:
 - IMPROVED (zero regressions) → done, changes stay
 - IMPROVED_WITH_REGRESSION → changes stay, note the regression task ID
   in the eval report for the next cycle's Analyst
 - NEUTRAL → revert Architect changes: `git revert HEAD --no-edit`
 - REGRESSED → revert: `git revert HEAD --no-edit`
 
-**7. P2 BACKLOG CHECK** (only if score is plateauing):
+**8. P2 BACKLOG CHECK** (only if score is plateauing):
 If the last 2+ cycles were NEUTRAL, check `docs/sota-analysis.md`
 Section 2 for P2 changes not yet implemented:
 - P2.1: Constraint extraction → add to `verify.py`
