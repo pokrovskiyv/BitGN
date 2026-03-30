@@ -2,6 +2,7 @@
 
 import json
 import re
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +33,9 @@ class EvalReport:
     tasks: list
     model: str
     log_path: str
+    fix_attribution: str        # full Fix Attribution section text
+    consistently_failing: list  # [{"task": "t21", "cause": "PROTOCOL", "notes": "..."}]
+    next_priorities: list       # ["t21 (PROTOCOL): ...", "t03 (SIDE_EFFECT): ..."]
 
 
 @dataclass
@@ -121,7 +125,42 @@ def parse_eval_report(path: Path) -> EvalReport:
     log_m = re.search(r"Log:\s*(.+)", text)
     log_path = log_m.group(1).strip() if log_m else ""
 
-    return EvalReport(ts, dt, verdict, score_pct, tasks_passed, delta_pct, tasks, model, log_path)
+    # Fix Attribution section
+    fix_attr_m = re.search(
+        r"## Fix Attribution\s*\n(.*?)(?=\n## |\Z)", text, re.DOTALL
+    )
+    fix_attribution = fix_attr_m.group(1).strip() if fix_attr_m else ""
+
+    # Consistently Failing table
+    consistently_failing = []
+    cf_start = text.find("Consistently")
+    if cf_start != -1:
+        cf_rows = re.findall(
+            r"\|\s*(t\d+)\s*\|\s*[\d.]+\s*\|\s*([^|]+)\|\s*([^|\n]+)",
+            text[cf_start:],
+        )
+        for r in cf_rows:
+            consistently_failing.append({
+                "task": r[0].strip(),
+                "cause": r[1].strip(),
+                "notes": r[2].strip(),
+            })
+
+    # Next Cycle Priorities
+    next_priorities = []
+    prio_m = re.search(
+        r"## Next Cycle Priorities\s*\n(.*?)(?=\n## |\Z)", text, re.DOTALL
+    )
+    if prio_m:
+        for line in prio_m.group(1).strip().split("\n"):
+            line = line.strip()
+            if line and line[0].isdigit():
+                next_priorities.append(re.sub(r"^\d+\.\s*", "", line))
+
+    return EvalReport(
+        ts, dt, verdict, score_pct, tasks_passed, delta_pct,
+        tasks, model, log_path, fix_attribution, consistently_failing, next_priorities,
+    )
 
 
 # ── Analysis report parser ────────────────────────────────────────────────────
@@ -226,6 +265,43 @@ def load_run_history() -> list:
         except Exception:
             continue
     return sorted(records, key=lambda r: r.dt)
+
+
+# ── Git log ───────────────────────────────────────────────────────────────────
+
+@dataclass
+class GitCommit:
+    hash: str
+    message: str
+    commit_type: str        # "feat", "fix", "perf", "docs", etc.
+
+
+def load_git_log(limit: int = 30) -> list:
+    """Load recent git commits. Returns list[GitCommit] newest-first."""
+    try:
+        result = subprocess.run(
+            ["git", "log", "--oneline", f"-{limit}"],
+            capture_output=True, text=True, cwd=str(REPO_ROOT),
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return []
+    except Exception:
+        return []
+
+    commits = []
+    for line in result.stdout.strip().split("\n"):
+        if not line:
+            continue
+        parts = line.split(" ", 1)
+        if len(parts) < 2:
+            continue
+        hash_str = parts[0]
+        msg = parts[1]
+        type_m = re.match(r"(feat|fix|perf|docs|chore|refactor|test|ci):", msg)
+        commit_type = type_m.group(1) if type_m else "other"
+        commits.append(GitCommit(hash=hash_str, message=msg, commit_type=commit_type))
+    return commits
 
 
 # ── Loaders ───────────────────────────────────────────────────────────────────
