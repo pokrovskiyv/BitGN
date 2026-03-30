@@ -38,6 +38,12 @@ class BitgnBenchmarkAdapter(BenchmarkAdapter):
         res = self._client.get_benchmark(GetBenchmarkRequest(benchmark_id=self._benchmark_id))
         all_tasks = [Task(id=t.task_id, input=t.task_id) for t in res.tasks]
 
+        if not all_tasks:
+            raise ValueError(f"Benchmark {self._benchmark_id!r} returned 0 tasks — check benchmark_id and API access")
+
+        if split not in ("train", "holdout"):
+            raise ValueError(f"Unknown split {split!r}; expected 'train' or 'holdout'")
+
         n_holdout = max(1, int(len(all_tasks) * 0.2))
         if split == "holdout":
             tasks = all_tasks[-n_holdout:]
@@ -49,9 +55,12 @@ class BitgnBenchmarkAdapter(BenchmarkAdapter):
     def evaluate(self, task: Task, trajectory: Trajectory) -> Feedback:
         """Extract cached score from trajectory. Score is stored by BitgnAgent.solve()."""
         if trajectory.conversation:
-            data = trajectory.conversation[0]
-            score = float(data.get("score", 0.0))
-            detail = "\n".join(data.get("detail", []))
-            return Feedback(success=score >= 1.0, score=score, detail=detail)
+            try:
+                data = trajectory.conversation[0]
+                score = float(data.get("score", 0.0))
+                detail = "\n".join(data.get("detail") or [])
+                return Feedback(success=score >= 1.0, score=score, detail=detail)
+            except (TypeError, ValueError) as exc:
+                return Feedback(success=False, score=0.0, detail=f"score parse error: {exc}")
 
         return Feedback(success=False, score=0.0, detail="no score cached in trajectory")
