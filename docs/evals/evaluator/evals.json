@@ -1,0 +1,18 @@
+{
+  "skill_name": "evaluator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Run the benchmark for tasks t01 and t02 only and compare against the previous baseline of 50%",
+      "expected_output": "A structured eval report with task-by-task comparison and a COMMIT/REVERT/INVESTIGATE decision",
+      "expectations": [
+        "Runs make task TASKS='t01 t02' rather than the full benchmark",
+        "Produces a task-by-task comparison table",
+        "Computes delta vs the provided baseline",
+        "Issues exactly one of: COMMIT, REVERT, NEUTRAL, INVESTIGATE",
+        "Decision follows the documented rules (not committed to COMMIT when delta is 0)",
+        "Saves output to docs/eval/"
+      ]
+    }
+  ]
+}

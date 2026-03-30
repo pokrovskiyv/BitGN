@@ -1,0 +1,18 @@
+{
+  "skill_name": "optimizer",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Profile this benchmark run and find efficiency opportunities",
+      "files": ["docs/evals/analyst/files/sample-run-log.md"],
+      "expected_output": "An optimization report with budget tuning recommendations",
+      "expectations": [
+        "Computes steps_used vs budget for each task",
+        "Identifies t05 as a stagnation case (repeated search calls)",
+        "Produces a Budget Tuning Recommendations table",
+        "Recommendations are specific (name the exact parameter in strategy.py to change)",
+        "Does NOT recommend changes that could reduce security effectiveness"
+      ]
+    }
+  ]
+}

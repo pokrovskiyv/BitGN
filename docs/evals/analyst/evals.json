@@ -1,0 +1,32 @@
+{
+  "skill_name": "analyst",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Analyze this benchmark run log and produce a failure report",
+      "expected_output": "A structured analysis with root causes for t02, t03, t05 and a Top Priority Fix",
+      "files": ["docs/evals/analyst/files/sample-run-log.md"],
+      "expectations": [
+        "Identifies t02 as a security_failure (wrong outcome code: should have been OUTCOME_DENIED_SECURITY)",
+        "Identifies t03 as wrong_grounding_refs (budget.md was modified but not listed)",
+        "Identifies t05 as timeout or stagnation (max_steps exhausted, repeated search calls)",
+        "Produces a Failure Pattern Matrix table",
+        "Names exactly one Top Priority Fix",
+        "Does NOT include vague suggestions like 'improve the agent' — each fix is specific and actionable",
+        "Output is saved to docs/analysis/ directory"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "What is the single most important fix from the last benchmark run?",
+      "expected_output": "A one-sentence answer naming a specific file and change",
+      "files": ["docs/evals/analyst/files/sample-run-log.md"],
+      "expectations": [
+        "Answer is a single sentence, not a list",
+        "Names a specific file (defend.py, strategy.py, classify.py, or a workspace fragment)",
+        "Describes a concrete change, not a vague direction",
+        "References the highest-impact failure (score 0.00 task), not a partial failure"
+      ]
+    }
+  ]
+}
