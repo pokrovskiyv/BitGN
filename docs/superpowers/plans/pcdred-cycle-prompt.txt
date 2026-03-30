@@ -70,19 +70,28 @@ cd pac1-py && make run 2>&1 | tee /tmp/cycle-run.log
 - Write to `docs/eval/run-YYYY-MM-DD-HH.md`
 - Verdict: IMPROVED / IMPROVED_WITH_REGRESSION / NEUTRAL / REGRESSED
 
-**6. DASHBOARD** (optional — skip if cycles are running rapidly):
+**6. RUN HISTORIAN** (mandatory — run immediately after Evaluator):
+- Dispatch run-historian agent
+- It validates docs/run_history.json was updated by main.py
+- It computes win rates and writes docs/analysis/run-historian-YYYY-MM-DD-HH.md
+- If DATA_GAP is reported (run_history.json missing or latest record absent),
+  investigate main.py — the _append_run_history() call may have failed
+- The run-historian report replaces the need to re-read all eval/*.md files
+  in the next cycle's Analyst step
+
+**7. DASHBOARD** (optional — skip if cycles are running rapidly):
 - Dispatch dashboard-updater agent to verify parser health after new eval report
 - Or open manually: `cd dashboard && make run` → http://localhost:8501
 - Dashboard auto-reads docs/ on each page load — no explicit data push needed
 
-**7. DECISION GATE**:
+**8. DECISION GATE**:
 - IMPROVED (zero regressions) → done, changes stay
 - IMPROVED_WITH_REGRESSION → changes stay, note the regression task ID
   in the eval report for the next cycle's Analyst
 - NEUTRAL → revert Architect changes: `git revert HEAD --no-edit`
 - REGRESSED → revert: `git revert HEAD --no-edit`
 
-**8. P2 BACKLOG CHECK** (only if score is plateauing):
+**9. P2 BACKLOG CHECK** (only if score is plateauing):
 If the last 2+ cycles were NEUTRAL, check `docs/sota-analysis.md`
 Section 2 for P2 changes not yet implemented:
 - P2.1: Constraint extraction → add to `verify.py`
@@ -100,3 +109,5 @@ from step 3.
 - If score REGRESSED, revert immediately — do not try to fix forward
 - All timestamps in filenames use UTC: YYYY-MM-DD-HH
 - Commit after each agent step
+- After each benchmark run, dispatch run-historian before moving to next cycle
+- The run-historian win rate table is authoritative for "consistently failing" tasks
