@@ -11,6 +11,7 @@ from parsers import (
     load_eval_reports,
     load_opt_reports,
     load_redteam_reports,
+    load_task_cache,
 )
 
 # ── Page config ───────────────────────────────────────────────────────────────
@@ -29,6 +30,7 @@ evals = load_eval_reports()
 analyses = load_analysis_reports()
 redteams = load_redteam_reports()
 opts = load_opt_reports()
+task_cache = load_task_cache()
 
 latest_eval = evals[-1] if evals else None
 latest_analysis = analyses[-1] if analyses else None
@@ -141,6 +143,45 @@ with col_right:
         st.caption(f"Run: {latest_eval.timestamp} · Model: {latest_eval.model}")
     else:
         st.info("No eval report available.")
+
+st.divider()
+
+# ── Task Detail Panel ─────────────────────────────────────────────────────────
+
+if latest_eval and latest_eval.tasks:
+    task_ids = [t.task_id for t in sorted(latest_eval.tasks, key=lambda t: t.task_id)]
+    selected = st.selectbox(
+        "Inspect task",
+        options=task_ids,
+        index=None,
+        placeholder="Select a task to see instruction and score detail…",
+    )
+    if selected:
+        task_score_obj = next((t for t in latest_eval.tasks if t.task_id == selected), None)
+        cached = task_cache.get(selected)
+
+        col_info, col_detail = st.columns([1, 2])
+        with col_info:
+            if task_score_obj:
+                status_icon = "✅" if task_score_obj.curr >= 1.0 else "❌"
+                st.metric("Score", f"{task_score_obj.curr:.2f}", task_score_obj.status)
+                st.markdown(f"**Status:** {status_icon} {task_score_obj.status}")
+            if cached:
+                st.caption(f"Model: {cached.get('model', '—')} · {cached.get('timestamp', '')[:10]}")
+
+        with col_detail:
+            if cached:
+                with st.expander("📋 Task Instruction", expanded=True):
+                    st.text(cached["instruction"])
+                if cached.get("score_detail"):
+                    with st.expander("📊 Score Detail (why this score)", expanded=True):
+                        for line in cached["score_detail"]:
+                            st.markdown(f"- {line}")
+            else:
+                st.info(
+                    "Task details not available yet. "
+                    "They will appear after the next benchmark run (`make run`)."
+                )
 
 st.divider()
 

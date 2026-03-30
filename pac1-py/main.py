@@ -1,5 +1,8 @@
+import json
 import os
 import textwrap
+from datetime import datetime, timezone
+from pathlib import Path
 
 from bitgn.harness_connect import HarnessServiceClientSync
 from bitgn.harness_pb2 import EndTrialRequest, EvalPolicy, GetBenchmarkRequest, StartPlaygroundRequest, StatusRequest
@@ -11,16 +14,32 @@ BITGN_URL = os.getenv("BENCHMARK_HOST") or "https://api.bitgn.com"
 BENCHMARK_ID = os.getenv("BENCHMARK_ID") or "bitgn/pac1-dev"
 MODEL_ID = os.getenv("MODEL_ID") or "claude-sonnet-4-6"
 
+TASK_CACHE_PATH = Path(__file__).parent.parent / "docs" / "task_cache.json"
+
 CLI_RED = "\x1B[31m"
 CLI_GREEN = "\x1B[32m"
 CLI_CLR = "\x1B[0m"
 CLI_BLUE = "\x1B[34m"
 
 
+def _save_task_cache(task_data: dict) -> None:
+    """Persist task instructions and score details to docs/task_cache.json."""
+    existing = {}
+    if TASK_CACHE_PATH.exists():
+        try:
+            existing = json.loads(TASK_CACHE_PATH.read_text())
+        except Exception:
+            pass
+    existing.update(task_data)
+    TASK_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    TASK_CACHE_PATH.write_text(json.dumps(existing, indent=2, ensure_ascii=False))
+
+
 def main() -> None:
     task_filter = os.sys.argv[1:]
 
     scores = []
+    task_data: dict = {}
     try:
         client = HarnessServiceClientSync(BITGN_URL)
         print("Connecting to BitGN", client.status(StatusRequest()))
@@ -52,6 +71,13 @@ def main() -> None:
             result = client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
             if result.score >= 0:
                 scores.append((task.task_id, result.score))
+                task_data[task.task_id] = {
+                    "instruction": trial.instruction,
+                    "score": result.score,
+                    "score_detail": list(result.score_detail),
+                    "model": MODEL_ID,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
                 style = CLI_GREEN if result.score == 1 else CLI_RED
                 explain = textwrap.indent("\n".join(result.score_detail), "  ")
                 print(f"\n{style}Score: {result.score:0.2f}\n{explain}\n{CLI_CLR}")
@@ -60,6 +86,9 @@ def main() -> None:
         print(f"{exc.code}: {exc.message}")
     except KeyboardInterrupt:
         print(f"{CLI_RED}Interrupted{CLI_CLR}")
+
+    if task_data:
+        _save_task_cache(task_data)
 
     if scores:
         for task_id, score in scores:

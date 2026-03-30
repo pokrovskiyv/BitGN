@@ -1,5 +1,6 @@
 """Parse PCDRED markdown reports into structured data."""
 
+import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -156,6 +157,25 @@ def parse_opt_report(path: Path) -> OptReport:
     short_recs = [r.strip()[:100] for r in recs[:6]]
 
     return OptReport(ts, dt, short_recs)
+
+
+# ── Task cache ───────────────────────────────────────────────────────────────
+
+TASK_CACHE_PATH = REPO_ROOT / "docs" / "task_cache.json"
+
+
+def load_task_cache() -> dict:
+    """Load task instructions and score details saved by main.py during runs.
+
+    Returns dict keyed by task_id:
+      {instruction, score, score_detail: list[str], model, timestamp}
+    """
+    if not TASK_CACHE_PATH.exists():
+        return {}
+    try:
+        return json.loads(TASK_CACHE_PATH.read_text())
+    except Exception:
+        return {}
 
 
 # ── Loaders ───────────────────────────────────────────────────────────────────
