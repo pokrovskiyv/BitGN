@@ -325,6 +325,8 @@ def _format_result(cmd: BaseModel, result) -> str:
         return _format_read_response(cmd, result)
     if isinstance(cmd, Req_Search):
         return _format_search_response(cmd, result)
+    if isinstance(cmd, Req_Delete):
+        return _render_command(f"rm {cmd.path}", f"deleted: {cmd.path}")
     return json.dumps(MessageToDict(result), indent=2)
 
 
