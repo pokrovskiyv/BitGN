@@ -35,7 +35,7 @@ class BitgnAgent(BaseAgent):
         super().__init__(workspace_dir)
         self._benchmark_id = benchmark_id or os.getenv("BENCHMARK_ID", "bitgn/pac1-dev")
         self._host = host or os.getenv("BENCHMARK_HOST", "https://api.bitgn.com")
-        self._model = model or os.getenv("MODEL_ID", "claude-haiku-4-5")
+        self._model = model or os.getenv("MODEL_ID", "claude-sonnet-4-6")
         self._harness_client = HarnessServiceClientSync(self._host)
 
     def solve(self, task: Task) -> Trajectory:

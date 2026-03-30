@@ -9,7 +9,7 @@ from agent import run_agent
 
 BITGN_URL = os.getenv("BENCHMARK_HOST") or "https://api.bitgn.com"
 BENCHMARK_ID = os.getenv("BENCHMARK_ID") or "bitgn/pac1-dev"
-MODEL_ID = os.getenv("MODEL_ID") or "claude-haiku-4-5"
+MODEL_ID = os.getenv("MODEL_ID") or "claude-sonnet-4-6"
 
 CLI_RED = "\x1B[31m"
 CLI_GREEN = "\x1B[32m"
