@@ -369,7 +369,7 @@ def dispatch(vm: PcmRuntimeClientSync, cmd: BaseModel):
 # ── Agent loop (shared) ───────────────────────────────────────────────────
 
 
-def run_agent(model: str, harness_url: str, task_text: str) -> None:
+def run_agent(model: str, harness_url: str, task_text: str) -> str | None:
     vm = PcmRuntimeClientSync(harness_url)
 
     # ── PERCEIVE: gather grounding context ────────────────────────────
@@ -475,7 +475,7 @@ def run_agent(model: str, harness_url: str, task_text: str) -> None:
             if cmd.grounding_refs:
                 for ref in cmd.grounding_refs:
                     print(f"- {CLI_BLUE}{ref}{CLI_CLR}")
-            break
+            return cmd.outcome  # ← A-Evolve needs this
 
         # ── TRACKING ──────────────────────────────────────────────
         if isinstance(cmd, Req_Write):
@@ -499,3 +499,5 @@ def run_agent(model: str, harness_url: str, task_text: str) -> None:
             txt += f"\n{warning_text}"
 
         messages.append({"role": "user", "content": wrap_tool_output(txt)})
+
+    return None
