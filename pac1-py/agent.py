@@ -409,7 +409,19 @@ def run_agent(model: str, harness_url: str, task_text: str) -> None:
         job = None
         for attempt in range(3):
             try:
-                job = call_llm(strategy.system_prompt, messages, model)
+                retry_msgs = messages
+                if attempt > 0:
+                    retry_msgs = messages + [{
+                        "role": "user",
+                        "content": (
+                            "FORMAT CORRECTION: Your previous response was not valid JSON. "
+                            "You MUST respond with a single JSON object containing exactly these fields: "
+                            "current_state (string), plan_remaining_steps_brief (array of 1-5 strings), "
+                            "task_completed (boolean), function (the action object with a 'tool' field). "
+                            "No markdown code fences. No explanation. Only the raw JSON object."
+                        ),
+                    }]
+                job = call_llm(strategy.system_prompt, retry_msgs, model)
                 break
             except Exception as exc:
                 print(f"LLM parse error (attempt {attempt + 1}/3): {exc}")
