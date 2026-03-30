@@ -6,9 +6,11 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from log_parser import load_all_run_logs
 from parsers import (
     load_analysis_reports,
     load_eval_reports,
+    load_git_log,
     load_opt_reports,
     load_redteam_reports,
     load_run_history,
@@ -33,6 +35,8 @@ redteams = load_redteam_reports()
 opts = load_opt_reports()
 task_cache = load_task_cache()
 run_history = load_run_history()
+run_logs = load_all_run_logs()
+git_commits = load_git_log()
 
 latest_eval = evals[-1] if evals else None
 latest_analysis = analyses[-1] if analyses else None
@@ -111,6 +115,19 @@ with col_left:
             margin=dict(l=0, r=0, t=10, b=0),
             height=300,
         )
+        # Annotate with recent code commits (fix/feat/perf only)
+        code_commits = [c for c in git_commits if c.commit_type in ("fix", "feat", "perf")]
+        for i, c in enumerate(code_commits[:6]):
+            fig.add_annotation(
+                x=dated_evals[-1].timestamp,
+                y=95 - (i * 10),
+                text=f"<b>{c.hash[:7]}</b> {c.message[:45]}",
+                showarrow=False,
+                font=dict(size=9, color="#64748b"),
+                xanchor="right",
+                align="right",
+            )
+
         st.plotly_chart(fig, use_container_width=True)
 
         # Legend
@@ -359,6 +376,70 @@ if latest_eval and latest_eval.tasks:
             else:
                 st.info("No history yet — appears after first `make run`.")
 
+        # Execution trace — find the log for the latest eval run
+        if latest_eval:
+            log_key = f"run-{latest_eval.timestamp}"
+            traces = run_logs.get(log_key, [])
+            task_trace = next((t for t in traces if t.task_id == selected), None)
+
+            if task_trace:
+                with st.expander(
+                    f"🔍 Execution Trace — {task_trace.step_count} steps, "
+                    f"{task_trace.total_time_ms/1000:.1f}s, "
+                    f"{task_trace.classification}",
+                    expanded=False,
+                ):
+                    m1, m2, m3, m4 = st.columns(4)
+                    m1.metric("Steps", task_trace.step_count)
+                    m2.metric("Time", f"{task_trace.total_time_ms/1000:.1f}s")
+                    m3.metric("Budget", f"{task_trace.step_count}/{task_trace.max_steps}")
+                    m4.metric("Events", sum(task_trace.events_summary.values()))
+
+                    step_rows = []
+                    for s in task_trace.steps:
+                        event_badges = " ".join(
+                            "🛡️" if e == "GATE" else "🔴" if e == "DEFEND" else "⚠️"
+                            for e in s.events
+                        )
+                        step_rows.append({
+                            "#": s.step_num,
+                            "Tool": s.tool,
+                            "Plan": s.plan_brief[:60],
+                            "Time": f"{s.timing_ms/1000:.1f}s",
+                            "Events": event_badges or "—",
+                        })
+                    if step_rows:
+                        st.dataframe(
+                            pd.DataFrame(step_rows),
+                            use_container_width=True,
+                            hide_index=True,
+                        )
+
+                    if task_trace.steps:
+                        fig_t = go.Figure()
+                        fig_t.add_trace(go.Bar(
+                            x=[f"step_{s.step_num}" for s in task_trace.steps],
+                            y=[s.timing_ms / 1000 for s in task_trace.steps],
+                            marker_color=[
+                                "#ef4444" if s.events else "#6366f1"
+                                for s in task_trace.steps
+                            ],
+                            hovertemplate=(
+                                "<b>Step %{x}</b><br>"
+                                "%{y:.1f}s<br>"
+                                "<extra></extra>"
+                            ),
+                        ))
+                        fig_t.update_layout(
+                            yaxis=dict(title="Seconds", gridcolor="#2d2d2d"),
+                            xaxis=dict(title=""),
+                            plot_bgcolor="rgba(0,0,0,0)",
+                            paper_bgcolor="rgba(0,0,0,0)",
+                            margin=dict(l=0, r=0, t=10, b=0),
+                            height=180,
+                        )
+                        st.plotly_chart(fig_t, use_container_width=True)
+
 st.divider()
 
 # ── PCDRED Pipeline ────────────────────────────────────────────────────────────
@@ -440,6 +521,107 @@ with tab_hist:
         st.dataframe(df_history, use_container_width=True, hide_index=True)
     else:
         st.info("No eval reports found.")
+
+st.divider()
+
+# ── Analytics ────────────────────────────────────────────────────────────────
+
+st.subheader("Analytics")
+
+tab_heatmap, tab_cats, tab_attrib, tab_prio = st.tabs([
+    "Task Stability", "Failure Categories", "Fix Attribution", "Priority Board"
+])
+
+with tab_heatmap:
+    dated = [e for e in evals if e.tasks and len(e.timestamp) == 13]
+    if dated:
+        hm_data = []
+        for e in dated:
+            for t in e.tasks:
+                hm_data.append({"Run": e.timestamp, "Task": t.task_id, "Score": t.curr})
+        hm_df = pd.DataFrame(hm_data)
+        pivot = hm_df.pivot(index="Task", columns="Run", values="Score").fillna(-1)
+        pivot = pivot.reindex(sorted(pivot.index, key=lambda x: int(x[1:])))
+
+        fig_hm = go.Figure(data=go.Heatmap(
+            z=pivot.values,
+            x=pivot.columns.tolist(),
+            y=pivot.index.tolist(),
+            colorscale=[
+                [0.0, "#1e1e1e"],
+                [0.45, "#ef4444"],
+                [0.55, "#ef4444"],
+                [1.0, "#22c55e"],
+            ],
+            zmin=-1, zmax=1,
+            hovertemplate="Task: %{y}<br>Run: %{x}<br>Score: %{z:.2f}<extra></extra>",
+        ))
+        fig_hm.update_layout(
+            yaxis=dict(autorange="reversed"),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=0, r=0, t=10, b=0),
+            height=600,
+        )
+        st.plotly_chart(fig_hm, use_container_width=True)
+    else:
+        st.info("Need eval reports with task data.")
+
+with tab_cats:
+    if analyses:
+        cat_counts: dict = {}
+        for a in analyses:
+            cat_counts[a.category] = cat_counts.get(a.category, 0) + 1
+        cats = list(cat_counts.keys())
+        counts = list(cat_counts.values())
+        cat_colors = {
+            "STAGNATION": "#eab308", "PROTOCOL": "#3b82f6", "SECURITY": "#ef4444",
+            "TOOL_ERROR": "#f97316", "SIDE_EFFECT": "#a855f7", "EDGE_CASE": "#22d3ee",
+        }
+        fig_cat = go.Figure(data=go.Bar(
+            x=cats,
+            y=counts,
+            marker_color=[cat_colors.get(c, "#94a3b8") for c in cats],
+        ))
+        fig_cat.update_layout(
+            yaxis=dict(title="Reports", gridcolor="#2d2d2d"),
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(l=0, r=0, t=10, b=0),
+            height=300,
+        )
+        st.plotly_chart(fig_cat, use_container_width=True)
+
+        for a in reversed(analyses):
+            with st.expander(f"{a.timestamp} — {a.category} — {a.target_task}"):
+                st.markdown(a.summary)
+    else:
+        st.info("No analysis reports found.")
+
+with tab_attrib:
+    has_data = False
+    for e in reversed(evals):
+        if e.fix_attribution:
+            has_data = True
+            with st.expander(
+                f"{e.timestamp} — {e.verdict} — {e.score_pct:.0f}%", expanded=False
+            ):
+                st.markdown(e.fix_attribution)
+        if e.consistently_failing:
+            has_data = True
+            st.caption(f"Consistently failing as of {e.timestamp}:")
+            cf_df = pd.DataFrame(e.consistently_failing)
+            st.dataframe(cf_df, use_container_width=True, hide_index=True)
+    if not has_data:
+        st.info("No fix attribution data in eval reports.")
+
+with tab_prio:
+    if latest_eval and latest_eval.next_priorities:
+        st.caption(f"From eval {latest_eval.timestamp}")
+        for i, prio in enumerate(latest_eval.next_priorities, 1):
+            st.markdown(f"**{i}.** {prio}")
+    else:
+        st.info("No priorities extracted from eval reports.")
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 
