@@ -15,6 +15,7 @@ BENCHMARK_ID = os.getenv("BENCHMARK_ID") or "bitgn/pac1-dev"
 MODEL_ID = os.getenv("MODEL_ID") or "claude-sonnet-4-6"
 
 TASK_CACHE_PATH = Path(__file__).parent.parent / "docs" / "task_cache.json"
+RUN_HISTORY_PATH = Path(__file__).parent.parent / "docs" / "run_history.json"
 
 CLI_RED = "\x1B[31m"
 CLI_GREEN = "\x1B[32m"
@@ -33,6 +34,45 @@ def _save_task_cache(task_data: dict) -> None:
     existing.update(task_data)
     TASK_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
     TASK_CACHE_PATH.write_text(json.dumps(existing, indent=2, ensure_ascii=False))
+
+
+def _append_run_history(task_data: dict, scores: list) -> None:
+    """Append a complete run record to docs/run_history.json (never overwrites)."""
+    if not scores:
+        return
+
+    tasks_passed = sum(1 for _, s in scores if s >= 1.0)
+    tasks_total = len(scores)
+    score_pct = round(tasks_passed / tasks_total * 100.0, 2) if tasks_total else 0.0
+
+    record = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "model": MODEL_ID,
+        "score_pct": score_pct,
+        "tasks_passed": tasks_passed,
+        "tasks_total": tasks_total,
+        "tasks": {
+            task_id: {
+                "score": td["score"],
+                "score_detail": td.get("score_detail", []),
+            }
+            for task_id, td in task_data.items()
+        },
+    }
+
+    history = []
+    if RUN_HISTORY_PATH.exists():
+        try:
+            history = json.loads(RUN_HISTORY_PATH.read_text())
+            if not isinstance(history, list):
+                history = []
+        except Exception:
+            history = []
+
+    history.append(record)
+    RUN_HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    RUN_HISTORY_PATH.write_text(json.dumps(history, indent=2, ensure_ascii=False))
+    print(f"Run history: {len(history)} records in docs/run_history.json")
 
 
 def main() -> None:
@@ -89,6 +129,7 @@ def main() -> None:
 
     if task_data:
         _save_task_cache(task_data)
+        _append_run_history(task_data, scores)
 
     if scores:
         for task_id, score in scores:
