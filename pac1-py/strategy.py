@@ -5,6 +5,7 @@ task classification. Prompts are loaded from workspace/prompts/ so A-Evolve
 can mutate them without touching Python code.
 """
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,24 +35,7 @@ def _load(rel: str) -> str:
     return path.read_text() if path.exists() else ""
 
 
-_BASE_PROMPT = _load("prompts/system.md")
-_SECURITY_ADDON = _load("prompts/fragments/security.md")
-_CRUD_ADDON = _load("prompts/fragments/crud.md")
-_SEARCH_ADDON = _load("prompts/fragments/search.md")
-_ANALYSIS_ADDON = _load("prompts/fragments/analysis.md")
-_MULTI_STEP_ADDON = _load("prompts/fragments/multi_step.md")
-
 _HINT = os.environ.get("HINT", "")
-
-# ── Prompt variant map ────────────────────────────────────────────────────
-
-_ADDONS = {
-    "crud": _CRUD_ADDON,
-    "search": _SEARCH_ADDON,
-    "analysis": _ANALYSIS_ADDON,
-    "multi_step": _MULTI_STEP_ADDON,
-    "security_test": _SECURITY_ADDON,
-}
 
 # ── Strategy table ────────────────────────────────────────────────────────
 
@@ -68,6 +52,19 @@ _STRATEGY_TABLE: dict[str, tuple[int, SecurityPosture, bool]] = {
 
 def decide_strategy(classification: TaskClassification) -> ExecutionStrategy:
     """Select execution strategy based on task classification."""
+    # Reload prompts fresh each call so A-Evolve workspace mutations take effect
+    base_prompt = _load("prompts/system.md")
+    if not base_prompt:
+        logging.warning("workspace/prompts/system.md is empty or missing — agent will have no system prompt")
+    security_addon = _load("prompts/fragments/security.md")
+    addons = {
+        "crud":         _load("prompts/fragments/crud.md"),
+        "search":       _load("prompts/fragments/search.md"),
+        "analysis":     _load("prompts/fragments/analysis.md"),
+        "multi_step":   _load("prompts/fragments/multi_step.md"),
+        "security_test": security_addon,
+    }
+
     # Pick strategy key
     if classification.task_type == "security_test":
         key = "security_test"
@@ -85,11 +82,11 @@ def decide_strategy(classification: TaskClassification) -> ExecutionStrategy:
         security_posture = "hardened"
 
     # Compose prompt
-    addon = _ADDONS.get(classification.task_type, "")
-    security_addon = _SECURITY_ADDON if security_posture in ("hardened", "paranoid") else ""
+    addon = addons.get(classification.task_type, "")
+    security_section = security_addon if security_posture in ("hardened", "paranoid") else ""
     hint_section = f"\n{_HINT}" if _HINT else ""
 
-    prompt = f"{_BASE_PROMPT}{addon}{security_addon}{hint_section}"
+    prompt = f"{base_prompt}{addon}{security_section}{hint_section}"
 
     return ExecutionStrategy(
         system_prompt=prompt,
