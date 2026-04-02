@@ -18,7 +18,8 @@ SecurityPosture = Literal["standard", "hardened", "paranoid"]
 
 @dataclass(frozen=True)
 class ExecutionStrategy:
-    system_prompt: str
+    system_prompt_static: str  # base + outcomes + reasoning (same for all tasks)
+    system_prompt_dynamic: str  # task addon + security + hints (varies per task)
     max_steps: int
     security_posture: SecurityPosture
     pre_submit_verification: bool
@@ -38,13 +39,16 @@ _HINT = os.environ.get("HINT", "")
 
 # ── Strategy table ────────────────────────────────────────────────────────
 
+_COMPLETION_RESERVE = 3  # extra steps reserved for completion gate cascade
+
 _STRATEGY_TABLE: dict[str, tuple[int, SecurityPosture, bool]] = {
     #                    max_steps  security_posture  pre_submit_verify
     "security_test": (8, "paranoid", False),
-    "crud": (10, "standard", True),
-    "crud_delete": (12, "hardened", True),
+    "crud": (14, "standard", True),
+    "crud_delete": (24, "hardened", True),
     "search": (15, "standard", True),
-    "communication": (18, "standard", True),
+    "communication": (22, "standard", True),
+    "inbox_processing": (28, "hardened", True),
     "analysis": (20, "standard", True),
     "multi_step": (25, "standard", True),
 }
@@ -65,6 +69,7 @@ def decide_strategy(classification: TaskClassification) -> ExecutionStrategy:
         "analysis": _load("prompts/fragments/analysis.md"),
         "multi_step": _load("prompts/fragments/multi_step.md"),
         "communication": _load("prompts/fragments/communication.md"),
+        "inbox_processing": _load("prompts/fragments/inbox_processing.md"),
         "security_test": security_addon,
     }
 
@@ -77,6 +82,7 @@ def decide_strategy(classification: TaskClassification) -> ExecutionStrategy:
         key = classification.task_type
 
     max_steps, security_posture, pre_submit = _STRATEGY_TABLE[key]
+    max_steps += _COMPLETION_RESERVE
 
     # Override security posture if threat detected
     if classification.threat_level == "high":
@@ -88,14 +94,8 @@ def decide_strategy(classification: TaskClassification) -> ExecutionStrategy:
     addon = addons.get(classification.task_type, "")
     outcomes_addon = _load("prompts/fragments/outcomes.md")
     reasoning_addon = _load("prompts/fragments/reasoning.md")
-    # Skip security_section for security_test — addon already includes it
-    if (
-        security_posture in ("hardened", "paranoid")
-        and classification.task_type != "security_test"
-    ):
-        security_section = security_addon
-    else:
-        security_section = ""
+    # Always inject security reminder (except security_test — already has it as primary addon)
+    security_section = security_addon if classification.task_type != "security_test" else ""
     hint_section = f"\n{_HINT}" if _HINT else ""
 
     # Target hints from classify.py — inject as soft routing guidance
@@ -104,13 +104,12 @@ def decide_strategy(classification: TaskClassification) -> ExecutionStrategy:
         hints_str = ", ".join(classification.target_hints)
         target_section = f"\nTarget references from task: {hints_str}. Prioritize these."
 
-    prompt = (
-        f"{base_prompt}{addon}{outcomes_addon}{reasoning_addon}"
-        f"{target_section}{security_section}{hint_section}"
-    )
+    static = f"{base_prompt}{outcomes_addon}{reasoning_addon}"
+    dynamic = f"{addon}{target_section}{security_section}{hint_section}"
 
     return ExecutionStrategy(
-        system_prompt=prompt,
+        system_prompt_static=static,
+        system_prompt_dynamic=dynamic,
         max_steps=max_steps,
         security_posture=security_posture,
         pre_submit_verification=pre_submit,
