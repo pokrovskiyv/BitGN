@@ -125,7 +125,11 @@ def _append_run_history(task_data: dict, scores: list) -> None:
         "tasks_passed": tasks_passed,
         "tasks_total": tasks_total,
         "tasks": {
-            tid: {"score": td["score"], "score_detail": td.get("score_detail", [])}
+            tid: {
+                "score": td["score"],
+                "score_detail": td.get("score_detail", []),
+                "metrics": td.get("metrics", {}),
+            }
             for tid, td in task_data.items()
         },
     }
@@ -251,22 +255,38 @@ def _generate_eval_report(task_data: dict, scores: list) -> None:
 
 def _run_single_task(client, benchmark_id: str, task) -> tuple[str, dict] | None:
     """Run one task end-to-end. Returns (task_id, data_dict) or None on error."""
+    from llm import get_usage_snapshot
+
     tid = task.task_id
     print(f"{'=' * 30} Starting task: {tid} {'=' * 30}")
     trial = client.start_playground(StartPlaygroundRequest(benchmark_id=benchmark_id, task_id=tid))
     print(f"{CLI_BLUE}{trial.instruction}{CLI_CLR}\n{'-' * 80}")
+    usage_before = get_usage_snapshot()
+    agent_result = None
     try:
-        run_agent(MODEL_ID, trial.harness_url, trial.instruction)
+        agent_result = run_agent(MODEL_ID, trial.harness_url, trial.instruction)
     except Exception as exc:
         print(exc)
+    usage_after = get_usage_snapshot()
     result = client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
     if result.score >= 0:
+        prompt_tok = usage_after.get("input_tokens", 0) - usage_before.get("input_tokens", 0)
+        compl_tok = usage_after.get("output_tokens", 0) - usage_before.get("output_tokens", 0)
+        metrics = {
+            "total_time_ms": agent_result.total_time_ms if agent_result else 0,
+            "step_count": agent_result.step_count if agent_result else 0,
+            "tool_call_count": agent_result.tool_call_count if agent_result else 0,
+            "prompt_tokens": prompt_tok,
+            "completion_tokens": compl_tok,
+            "steps": agent_result.steps_detail if agent_result else [],
+        }
         data = {
             "instruction": trial.instruction,
             "score": result.score,
             "score_detail": list(result.score_detail),
             "model": MODEL_ID,
             "timestamp": datetime.now(UTC).isoformat(),
+            "metrics": metrics,
         }
         style = CLI_GREEN if result.score == 1 else CLI_RED
         explain = textwrap.indent("\n".join(result.score_detail), "  ")
