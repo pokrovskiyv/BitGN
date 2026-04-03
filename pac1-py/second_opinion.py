@@ -2,8 +2,7 @@
 
 Spawns a one-shot LLM call with a "verifier" role to check whether the
 agent chose the correct outcome before report_completion is dispatched.
-Fires only for judgment-heavy tasks (inbox processing, security rejects,
-clarification claims).
+Uses a dedicated Anthropic client (Haiku) independent of the main agent's LLM backend.
 """
 
 import os
@@ -12,17 +11,26 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from classify import TaskClassification
-from llm import _call_api, call_llm
 
 VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "claude-haiku-4-5-20251001")
 
 _WORKSPACE = Path(__file__).parent / "workspace"
+_client = None
 
 
 class VerifierVerdict(BaseModel):
     agree: bool
     reasoning: str
     suggested_outcome: str | None = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        import anthropic
+
+        _client = anthropic.Anthropic()
+    return _client
 
 
 def _load_verifier_prompt() -> str:
@@ -64,11 +72,17 @@ def get_second_opinion(
         f"If you disagree, suggest the correct outcome."
     )
 
-    messages = [{"role": "user", "content": user_content}]
-
     try:
-        verdict = _call_api(verifier_prompt, "", messages, VERIFIER_MODEL, VerifierVerdict)
-        return verdict
+        client = _get_client()
+        resp = client.messages.parse(
+            model=VERIFIER_MODEL,
+            max_tokens=1024,
+            system=[{"type": "text", "text": verifier_prompt}],
+            messages=[{"role": "user", "content": user_content}],
+            output_format=VerifierVerdict,
+        )
+        if resp.parsed_output is None:
+            return VerifierVerdict(agree=True, reasoning="verifier returned no output")
+        return resp.parsed_output
     except Exception as exc:
-        # On failure, default to agree — don't block completion
         return VerifierVerdict(agree=True, reasoning=f"verifier error: {exc}")
