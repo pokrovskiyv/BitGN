@@ -5,37 +5,30 @@ competition agent score.
 
 ### Before you start
 
-1. Read the LATEST evaluation report — find the most recent file in:
+0. Compile the knowledge wiki (fast — under 1 second):
+```bash
+python3 compile_wiki.py
+```
+
+1. Read the wiki for current state, health alerts, and task win rates:
+   - `docs/wiki/index.md` — score, task summary, health alerts
+   - `docs/wiki/fix-registry.md` — all attempted fixes and outcomes (DO_NOT_REPEAT)
+
+2. Read the LATEST evaluation report:
 ```bash
 ls -t docs/eval/run-*.md | head -1
 ```
 
-2. Read these for context:
-   - `docs/superpowers/plans/03-plan-cycles.md` — cycle process
+3. Read these for context:
    - `docs/sota-analysis.md` — P2 changes backlog (Section 2)
    - `CLAUDE.md` — Key Design Principles
 
-3. Note the current score from the latest eval report. This is your
-   baseline for THIS cycle.
+4. Note the current score from the wiki index. This is your baseline.
 
-4. Compute per-task win rates from the last 4 runs:
-```bash
-python3 -c "
-import json
-h = json.loads(open('docs/run_history.json').read())[-4:]
-tasks = {}
-for r in h:
-    for tid, td in r.get('tasks', {}).items():
-        tasks.setdefault(tid, []).append(td.get('score', 0))
-for tid in sorted(tasks):
-    scores = tasks[tid]
-    wr = sum(1 for s in scores if s >= 1) / len(scores) * 100
-    if wr < 100:
-        print(f'{tid}: {wr:.0f}% win rate ({len(scores)} runs)')
-"
-```
+5. For the target failure, read the task card for full history:
+   - `docs/wiki/tasks/tNN.md` (where tNN is the failing task)
 
-5. Identify which failures are `model_parse_failure` (ERR_INTERNAL / no
+6. Identify which failures are `model_parse_failure` (ERR_INTERNAL / no
    answer provided) vs fixable outcome/logic errors. Parse failures need
    infrastructure fixes only (`llm.py`, `strategy.py`), NOT prompt changes.
 

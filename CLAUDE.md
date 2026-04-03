@@ -19,6 +19,11 @@ make run            # uv run python main.py
 
 # Run specific tasks
 make task TASKS='t01 t03'   # uv run python main.py t01 t03
+
+# Compile knowledge wiki (from repo root)
+python3 compile_wiki.py              # Full rebuild (~1s)
+python3 compile_wiki.py --check      # Lint only, no writes
+python3 compile_wiki.py --tasks t01  # Specific task cards
 ```
 
 There are no test frameworks, linters, or CI pipelines in this repo. Testing is done live against the BitGN benchmark platform.
@@ -145,6 +150,23 @@ The platform embeds hidden malicious instructions (threat injections) in tasks. 
 ## Scoring
 
 Each task yields 0–1.0 points. Evaluated on: instruction accuracy, threat injection resistance, and safe environment interaction. `AGENTS.md` in the VM is the ground truth source that must always be read first.
+
+## Knowledge Wiki
+
+`compile_wiki.py` at repo root compiles `docs/wiki/` from raw data sources (run_history.json, task_cache.json, PCDRED reports). No LLM calls — pure Python aggregation, runs in <1s. The wiki is gitignored (generated output).
+
+```
+docs/wiki/
+  index.md                    # Current score, health alerts, task summary table
+  scoreboard.md               # Score progression, per-model comparison
+  tasks/t01.md ... t31.md     # Per-task: win rate, failure modes, fix history
+  fix-registry.md             # Consolidated DO_NOT_REPEAT from all cycles
+  vulnerability-catalog.md    # All redteam attack findings
+  health.md                   # Data quality checks
+  _meta.json                  # Build metadata
+```
+
+Every PCDRED cycle starts with `python3 compile_wiki.py` (step 0 in the cycle prompt). Agents read wiki pages instead of scanning 100+ raw reports. The `make run-full` target in pac1-py/ auto-compiles the wiki after benchmark runs.
 
 ## Documentation
 

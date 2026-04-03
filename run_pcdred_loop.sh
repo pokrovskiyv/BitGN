@@ -28,14 +28,9 @@ for i in $(seq 1 "$CYCLES"); do
   echo ""
   echo "Cycle $i done. Log: $LOG"
 
-  # Print latest score from run_history.json
-  python3 -c "
-import json, pathlib
-h = json.loads(pathlib.Path('docs/run_history.json').read_text())
-if h:
-    r = h[-1]
-    print(f\"  Score: {r['tasks_passed']}/{r['tasks_total']} ({r['score_pct']}%) — {r.get('model','?')}\")
-" 2>/dev/null || true
+  # Recompile wiki and show current score
+  python3 compile_wiki.py 2>/dev/null || true
+  head -9 docs/wiki/index.md 2>/dev/null | tail -4 || true
 
   # Check for early-stop: 3 consecutive NEUTRAL/REGRESSED
   LATEST_EVAL=$(ls -t docs/eval/run-*.md 2>/dev/null | head -1)
@@ -63,11 +58,7 @@ done
 echo ""
 echo "=== ALL CYCLES COMPLETE — $(date -u '+%Y-%m-%d %H:%M UTC') ==="
 
-# Final summary
-python3 -c "
-import json, pathlib
-h = json.loads(pathlib.Path('docs/run_history.json').read_text())
-if len(h) >= 2:
-    first, last = h[-min(len(h), $CYCLES)], h[-1]
-    print(f\"Start: {first['score_pct']}% → End: {last['score_pct']}% (delta: {last['score_pct']-first['score_pct']:+.1f}pp)\")
-" 2>/dev/null || true
+# Final wiki compile and summary
+python3 compile_wiki.py 2>/dev/null || true
+echo "Final wiki state:"
+head -12 docs/wiki/index.md 2>/dev/null | grep -E "^\- " || true

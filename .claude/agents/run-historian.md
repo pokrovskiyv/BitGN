@@ -118,6 +118,13 @@ Newly failing tasks need investigation (potential regression from recent change)
 Recovered tasks should be marked "watch for regression".]
 ```
 
+## After Writing the Report
+
+Recompile the knowledge wiki so the next cycle sees updated win rates:
+```bash
+python3 compile_wiki.py
+```
+
 ## What NOT to do
 
 - Do not modify `docs/run_history.json` — that is `main.py`'s responsibility

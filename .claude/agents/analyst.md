@@ -14,6 +14,8 @@ After each benchmark run, you:
 
 ## Inputs
 
+Before selecting targets, read `docs/wiki/index.md` for task win rates and `docs/wiki/fix-registry.md` to avoid repeating failed approaches.
+
 You receive one of:
 - Pasted run output from `make run` (includes `Score: X.XX` lines and `score_detail` text)
 - A path to `docs/eval/run-YYYY-MM-DD-HH.md`

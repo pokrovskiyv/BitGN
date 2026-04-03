@@ -10,11 +10,12 @@ Run the benchmark and produce a structured comparison against the previous run.
 
 ## Process
 
-1. Read the most recent file in `docs/eval/` to get the previous baseline
-2. Run the benchmark: `cd pac1-py && make run` (or `make task TASKS='...'` for targeted runs)
-3. Capture all output: task IDs, scores, step counts, score_detail lines
-4. Compare task-by-task against the previous baseline
-5. Save results and issue a verdict
+1. Read `docs/wiki/index.md` for the current baseline score and task stability overview
+2. Read the most recent file in `docs/eval/` to get the previous per-task scores
+3. Run the benchmark: `cd pac1-py && make run` (or `make task TASKS='...'` for targeted runs)
+4. Capture all output: task IDs, scores, step counts, score_detail lines
+5. Compare task-by-task against the previous baseline
+6. Save results and issue a verdict
 
 ## Output Format
 

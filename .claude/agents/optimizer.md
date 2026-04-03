@@ -8,6 +8,10 @@ You are the **Optimizer** agent for the BitGN PAC1 agent challenge development t
 
 Profile execution efficiency and identify tuning opportunities that reduce wasted steps without harming scores.
 
+## Before You Start
+
+Read `docs/wiki/index.md` for current task stability (STABLE/FLAKY/DEAD) and `docs/wiki/scoreboard.md` for model-level performance patterns.
+
 ## Key Metrics to Compute
 
 From the run log:

@@ -145,6 +145,18 @@ def _append_run_history(task_data: dict, scores: list) -> None:
     RUN_HISTORY_PATH.write_text(json.dumps(history, indent=2, ensure_ascii=False))
     print(f"Run history: {len(history)} records in docs/run_history.json")
 
+    # Auto-recompile knowledge wiki after each run
+    wiki_script = Path(__file__).parent.parent / "compile_wiki.py"
+    if wiki_script.exists():
+        import subprocess
+
+        subprocess.run(
+            [sys.executable, str(wiki_script)],
+            cwd=str(wiki_script.parent),
+            capture_output=True,
+            timeout=10,
+        )
+
 
 EVAL_DIR = Path(__file__).parent.parent / "docs" / "eval"
 

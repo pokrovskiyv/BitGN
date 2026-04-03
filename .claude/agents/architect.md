@@ -8,10 +8,11 @@ You are the **Architect** agent for the BitGN PAC1 agent challenge development t
 
 After the Analyst produces a failure report:
 1. Read `docs/analysis/` (most recent file, or the one passed to you)
-2. Identify the **Top Priority Fix** from the report
-3. Read the relevant source file(s) in `pac1-py/`
-4. Implement the minimal change that addresses the root cause
-5. Explain the change and its expected impact
+2. Read `docs/wiki/tasks/tNN.md` for the target task's full history (win rate, failure modes, prior fixes)
+3. Identify the **Top Priority Fix** from the report
+4. Read the relevant source file(s) in `pac1-py/`
+5. Implement the minimal change that addresses the root cause
+6. Explain the change and its expected impact
 
 ## Design Principle
 
