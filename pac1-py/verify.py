@@ -120,6 +120,15 @@ def pre_completion_gate(
             f"REJECTED: OUTCOME_OK after only {step + 1} steps. "
             "You must actually read, write, and verify before completing."
         )
+    # Complex tasks need minimum exploration before ANY outcome is valid
+    _MIN_STEPS = {"communication": 4, "analysis": 4, "inbox_processing": 4, "multi_step": 4}
+    min_step = _MIN_STEPS.get(task_type, 0)
+    if min_step and step < min_step:
+        return (
+            f"HOLD: Only {step + 1} tool calls for a {task_type} task. "
+            "List directories, read key files, and verify your understanding "
+            "before reporting any outcome."
+        )
     if task_type == "inbox_processing" and not any("inbox/" in p for p in tracker._reads):
         return (
             "HOLD: Inbox task but you never read any file from inbox/. "
