@@ -99,8 +99,11 @@ def run_agent_loop(
         is_sensitive = tool_name == "write" and any(
             cmd_path.rstrip("/").endswith(s) for s in env_model.sensitive_paths
         )
-        if ((handler and handler.destructive) or is_sensitive) and not domain.is_completion(cmd):
-            gate_msg = action_gate_message(tool_name, cmd_path)
+        effective_risk = handler.risk_level if handler else "low"
+        if is_sensitive:
+            effective_risk = "high"
+        if effective_risk != "low" and not domain.is_completion(cmd):
+            gate_msg = action_gate_message(tool_name, cmd_path, risk_level=effective_risk)
             print(f"{CLI_YELLOW}GATE{CLI_CLR}: {gate_msg}")
             messages.append({"role": "user", "content": gate_msg})
 
