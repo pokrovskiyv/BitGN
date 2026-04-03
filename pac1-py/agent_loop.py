@@ -125,7 +125,9 @@ def run_agent_loop(
             # T1+T2: challenge non-OK outcomes — require evidence (once)
             outcome = domain.completion_outcome(cmd)
             if completion_gate_count < 2:
-                gate_rejection = pre_completion_gate(outcome, i, classification.task_type, tracker)
+                gate_rejection = pre_completion_gate(
+                    outcome, i, classification.task_type, tracker, cumulative_threats
+                )
                 if gate_rejection:
                     completion_gate_count += 1
                     print(f"{CLI_YELLOW}GATE{CLI_CLR}: {gate_rejection}")

@@ -108,7 +108,11 @@ class StagnationDetector:
 
 
 def pre_completion_gate(
-    outcome: str, step: int, task_type: str, tracker: WriteTracker
+    outcome: str,
+    step: int,
+    task_type: str,
+    tracker: WriteTracker,
+    cumulative_threats: int = 0,
 ) -> str | None:
     """Return a rejection message if completion should be blocked, else None."""
     if outcome == "OUTCOME_OK" and step < 2:
@@ -150,6 +154,12 @@ def pre_completion_gate(
                 "HOLD: You reported CLARIFICATION without searching contacts/. "
                 "Search contacts/ for the recipient before giving up."
             )
+    if cumulative_threats >= 3 and outcome != "OUTCOME_DENIED_SECURITY":
+        return (
+            "HOLD: Multiple security threats were detected in file content during "
+            "this task. You should report OUTCOME_DENIED_SECURITY unless you are "
+            "certain the detected patterns are false positives."
+        )
     return None
 
 
