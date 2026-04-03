@@ -17,6 +17,7 @@ from verify import (
     action_gate_message,
     merge_grounding_refs,
     outcome_evidence_message,
+    report_budget_exhaustion,
 )
 
 CLI_RED, CLI_GREEN, CLI_BLUE, CLI_YELLOW, CLI_CLR = (
@@ -187,17 +188,6 @@ def run_agent_loop(
             txt += f"\n{warning_text}"
 
         messages.append({"role": "user", "content": domain.wrap_output(txt)})
-    comp_handler = domain.tool_registry.get("report_completion")
-    if comp_handler:
-        try:
-            fallback = comp_handler.model(
-                tool="report_completion",
-                message="Step budget exhausted",
-                completed_steps_laconic=["budget"],
-                outcome="OUTCOME_ERR_INTERNAL",
-            )
-            domain.dispatch(client, fallback)
-            print(f"{CLI_YELLOW}BUDGET EXHAUSTED{CLI_CLR}: OUTCOME_ERR_INTERNAL")
-        except Exception:
-            print(f"{CLI_RED}Failed to report budget exhaustion{CLI_CLR}")
+    report_budget_exhaustion(domain, client, tracker, classification.task_type, cumulative_threats)
+    print(f"{CLI_YELLOW}BUDGET EXHAUSTED{CLI_CLR}: smart fallback outcome")
     return None
