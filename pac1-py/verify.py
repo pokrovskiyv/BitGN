@@ -150,6 +150,14 @@ def pre_completion_gate(
                 "HOLD: You reported CLARIFICATION without searching contacts/. "
                 "Search contacts/ for the recipient before giving up."
             )
+    if outcome == "OUTCOME_NONE_UNSUPPORTED":
+        return (
+            "HOLD: OUTCOME_NONE_UNSUPPORTED means the task requires capabilities "
+            "you do not have. You have full filesystem tools (read, write, list, "
+            "search, tree, find, move, delete, mkdir, context). If the task IS "
+            "achievable with filesystem operations, use OUTCOME_OK after completing. "
+            "If the task instruction is ambiguous, use OUTCOME_NONE_CLARIFICATION."
+        )
     return None
 
 
