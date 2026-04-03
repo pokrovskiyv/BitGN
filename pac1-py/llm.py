@@ -116,18 +116,17 @@ def _call_openai_compat(
     kwargs: dict = dict(model=model, max_tokens=16384)
     kwargs["messages"] = [{"role": "system", "content": system}, *messages]
 
-    if LLM_BACKEND == "nebius":
-        schema = nextstep_type.model_json_schema()
-        func_prop = schema.get("properties", {}).get("function")
-        if func_prop and "anyOf" in func_prop:
-            func_prop["discriminator"] = {"propertyName": "tool"}
-        kwargs["response_format"] = {
-            "type": "json_schema",
-            "json_schema": {"name": "next_step", "schema": schema, "strict": False},
-        }
-    else:
-        kwargs["response_format"] = {"type": "json_object"}
-        kwargs["extra_body"] = {"reasoning": {"effort": "high"}, "include_reasoning": True}
+    schema = nextstep_type.model_json_schema()
+    func_prop = schema.get("properties", {}).get("function")
+    if func_prop and "anyOf" in func_prop:
+        func_prop["discriminator"] = {"propertyName": "tool"}
+    strict = LLM_BACKEND != "nebius"  # OpenRouter needs strict; Nebius handles it internally
+    kwargs["response_format"] = {
+        "type": "json_schema",
+        "json_schema": {"name": "next_step", "schema": schema, "strict": strict},
+    }
+    if LLM_BACKEND == "openrouter":
+        kwargs["extra_body"] = {"reasoning": {"effort": "high"}}
 
     try:
         resp = client.chat.completions.create(**kwargs)
@@ -171,6 +170,15 @@ _api_usage = {
 
 def get_api_usage() -> dict:
     return dict(_api_usage)
+
+
+def get_usage_snapshot() -> dict:
+    """Return current token counts for the active backend (for per-task delta computation)."""
+    if LLM_BACKEND == "api":
+        return dict(_api_usage)
+    if LLM_BACKEND == "openrouter":
+        return dict(_openrouter_usage)
+    return dict(_nebius_usage)
 
 
 def _call_api(

@@ -40,14 +40,14 @@ _HINT = os.environ.get("HINT", "")
 
 _STRATEGY_TABLE: dict[str, tuple[int, SecurityPosture, bool]] = {
     #                    max_steps  security_posture  pre_submit_verify
-    "security_test": (8, "paranoid", False),
-    "crud": (10, "standard", True),
-    "crud_delete": (12, "hardened", True),
-    "search": (15, "standard", True),
-    "communication": (18, "standard", True),
-    "analysis": (20, "standard", True),
-    "inbox_processing": (28, "hardened", True),
-    "multi_step": (25, "standard", True),
+    "security_test": (12, "paranoid", False),
+    "crud": (15, "standard", True),
+    "crud_delete": (20, "hardened", True),
+    "search": (20, "standard", True),
+    "communication": (25, "standard", True),
+    "analysis": (25, "standard", True),
+    "inbox_processing": (32, "hardened", True),
+    "multi_step": (30, "standard", True),
 }
 
 

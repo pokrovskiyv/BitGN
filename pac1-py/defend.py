@@ -118,6 +118,7 @@ THREAT_PATTERNS: list[tuple[str, str]] = [
 _COMPILED = [(cat, re.compile(pat, re.IGNORECASE)) for cat, pat in THREAT_PATTERNS]
 _COMPILED.append(("role_manipulation", re.compile(r"\bDAN\b")))  # case-sensitive: "Dan" is a name
 
+_SINGLE_HEX_RE = re.compile(r"\\x([0-9a-fA-F]{2})")  # single \xNN → decode
 _BASE64_RE = re.compile(r"[A-Za-z0-9+/\-_]{20,}={0,2}")
 _HEX_ESCAPE_RE = re.compile(r"(?:\\x[0-9a-fA-F]{2}){3,}")
 _URL_ENCODED_RE = re.compile(r"(?:%[0-9a-fA-F]{2}){3,}")
@@ -146,8 +147,10 @@ _CONFUSABLE_CHARS = set(_CONFUSABLE_MAP)
 
 
 def _normalize_for_scan(content: str) -> str:
-    """Strip zero-width chars, replace homoglyphs with Latin, collapse whitespace."""
+    """Strip zero-width chars, decode single hex escapes, replace homoglyphs, collapse whitespace."""
     result = _ZERO_WIDTH_RE.sub("", content)
+    # Decode single \xNN escapes (catches \x3cscript → <script evasion)
+    result = _SINGLE_HEX_RE.sub(lambda m: chr(int(m.group(1), 16)), result)
     for char, latin in _CONFUSABLE_MAP.items():
         result = result.replace(char, latin)
     return re.sub(r"\s+", " ", result)
