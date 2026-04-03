@@ -17,6 +17,7 @@ from verify import (
     action_gate_message,
     merge_grounding_refs,
     outcome_evidence_message,
+    pre_completion_gate,
     report_budget_exhaustion,
 )
 
@@ -66,6 +67,7 @@ def run_agent_loop(
 
     cumulative_threats = 0  # T4: Crescendo defense
     outcome_challenged = False  # T1: one-shot evidence challenge
+    completion_gate_count = 0  # pre_completion_gate attempt cap
 
     for i in range(strategy.max_steps):
         if i == strategy.max_steps - 2:  # T6: force completion before exhaustion
@@ -118,6 +120,13 @@ def run_agent_loop(
                 continue
             # T1+T2: challenge non-OK outcomes — require evidence (once)
             outcome = domain.completion_outcome(cmd)
+            if completion_gate_count < 2:
+                gate_rejection = pre_completion_gate(outcome, i, classification.task_type, tracker)
+                if gate_rejection:
+                    completion_gate_count += 1
+                    print(f"{CLI_YELLOW}GATE{CLI_CLR}: {gate_rejection}")
+                    messages.append({"role": "user", "content": gate_rejection})
+                    continue
             deleted = tracker.deleted_paths()
             if outcome != "OUTCOME_OK" and not outcome_challenged:
                 outcome_challenged = True
