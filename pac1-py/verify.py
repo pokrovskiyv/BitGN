@@ -219,12 +219,15 @@ def _fallback_outcome(
         return "OUTCOME_DENIED_SECURITY"
     has_writes = bool(tracker._writes)
     has_reads = bool(tracker._reads)
+    if task_type == "communication" and not has_writes:
+        return "OUTCOME_NONE_UNSUPPORTED"
     if has_writes:
         return "OUTCOME_OK"
     if has_reads:
         return "OUTCOME_NONE_CLARIFICATION"
-    if task_type == "communication":
-        return "OUTCOME_NONE_UNSUPPORTED"
+    # No reads, no writes = agent couldn't execute anything.
+    # CLARIFICATION is never worse than ERR_INTERNAL (which is never a correct outcome)
+    # and is sometimes correct (t05-type tasks expecting CLARIFICATION/UNSUPPORTED).
     return "OUTCOME_NONE_CLARIFICATION"
 
 
