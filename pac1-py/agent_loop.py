@@ -66,6 +66,7 @@ def run_agent_loop(
 
     cumulative_threats = 0  # T4: Crescendo defense
     outcome_challenged = False  # T1: one-shot evidence challenge
+    high_risk_gated: set[str] = set()  # paths already challenged at HIGH risk
 
     for i in range(strategy.max_steps):
         if i == strategy.max_steps - 2:  # T6: force completion before exhaustion
@@ -107,6 +108,9 @@ def run_agent_loop(
             gate_msg = action_gate_message(tool_name, cmd_path, risk_level=effective_risk)
             print(f"{CLI_YELLOW}GATE{CLI_CLR}: {gate_msg}")
             messages.append({"role": "user", "content": gate_msg})
+            if effective_risk == "high" and cmd_path not in high_risk_gated:
+                high_risk_gated.add(cmd_path)
+                continue
 
         # ── PRE-SUBMIT VERIFICATION (before dispatch) ────────────
         if domain.is_completion(cmd):
