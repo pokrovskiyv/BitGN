@@ -78,7 +78,7 @@ def run_agent_loop(
                 retry_msgs = messages
                 if attempt > 0:
                     retry_msgs = messages + [{"role": "user", "content": _FMT_CORRECTION}]
-                job = call_llm(strategy.system_prompt, retry_msgs, model, nextstep_type)
+                job = call_llm(strategy.system_prompt, "", retry_msgs, model, nextstep_type)
                 break
             except Exception as exc:
                 print(f"LLM parse error (attempt {attempt + 1}/3): {exc}")
