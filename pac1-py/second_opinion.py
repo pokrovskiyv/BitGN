@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from classify import TaskClassification
 
-VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "claude-haiku-4-5-20251001")
+VERIFIER_MODEL = os.getenv("VERIFIER_MODEL", "claude-sonnet-4-5-20250514")
 
 _WORKSPACE = Path(__file__).parent / "workspace"
 _client = None
@@ -41,6 +41,8 @@ def _load_verifier_prompt() -> str:
 def needs_second_opinion(classification: TaskClassification, outcome: str) -> bool:
     """Decide whether to spawn a verifier agent for this completion."""
     if classification.task_type == "inbox_processing":
+        return True
+    if classification.task_type == "communication" and outcome == "OUTCOME_OK":
         return True
     if outcome == "OUTCOME_DENIED_SECURITY":
         return True
