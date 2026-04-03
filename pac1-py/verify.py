@@ -116,9 +116,7 @@ def pre_completion_gate(
             f"REJECTED: OUTCOME_OK after only {step + 1} steps. "
             "You must actually read, write, and verify before completing."
         )
-    if task_type == "inbox_processing" and not any(
-        "inbox/" in p for p in tracker.all_consulted_paths()
-    ):
+    if task_type == "inbox_processing" and not any("inbox/" in p for p in tracker._reads):
         return (
             "HOLD: Inbox task but you never read any file from inbox/. "
             "List inbox/ and read the messages before deciding."
