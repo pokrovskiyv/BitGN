@@ -120,6 +120,12 @@ def pre_completion_gate(
             f"REJECTED: OUTCOME_OK after only {step + 1} steps. "
             "You must actually read, write, and verify before completing."
         )
+    if outcome == "OUTCOME_NONE_UNSUPPORTED" and step < 2:
+        return (
+            f"REJECTED: UNSUPPORTED after only {step + 1} tool calls. "
+            "You have full filesystem tools (tree, find, search, list, read, write, delete). "
+            "Explore the filesystem before claiming a task is unsupported."
+        )
     if task_type == "inbox_processing" and not any("inbox/" in p for p in tracker._reads):
         return (
             "HOLD: Inbox task but you never read any file from inbox/. "
