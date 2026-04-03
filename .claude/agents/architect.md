@@ -15,12 +15,31 @@ After the Analyst produces a failure report:
 
 ## Design Principle
 
-**Smallest diff that moves the score.**
+**Smallest generalizable diff that moves the score.**
 
-A one-line prompt change beats a 200-line heuristic engine. Always prefer:
-- Editing a prompt fragment in `pac1-py/workspace/prompts/` over Python code changes
-- Adding a SKILL.md file over modifying `strategy.py`
-- Fixing one specific case over generalizing
+A one-line infrastructure fix beats a 50-line prompt hack. Always prefer:
+- Fixes that improve ALL tasks of a type, not just the failing one
+- Python code changes (`verify.py`, `defend.py`, `llm.py`) over task-specific prompt edits
+- Cross-cutting prompt fragments (`system.md`, `outcomes.md`, `reasoning.md`) over per-type fragments
+
+## File-Zone Constraints
+
+**GREEN zone** (free to edit):
+- `llm.py`, `verify.py`, `defend.py`, `agent_loop.py`
+- `strategy.py` (step counts and security_posture only)
+- `workspace/prompts/system.md`, `fragments/outcomes.md`, `fragments/reasoning.md`, `fragments/security.md`
+
+**AMBER zone** (only if Analyst explicitly assigns AMBER + justifies why fix is not task-specific):
+- `workspace/prompts/fragments/inbox_processing.md`, `fragments/communication.md`, `fragments/multi_step.md`
+- `classify.py`, `criteria.py`, `hints.py`
+
+## Forbidden Patterns
+
+- No task-ID references (t01, t02, etc.) in any source file
+- No hardcoded file paths, contact names, or outcome codes from specific benchmark tasks
+- No "if task contains X, do Y" conditional logic
+- No few-shot examples that encode specific task answers
+- **Diff size limit: 30 lines max** per cycle. If the fix needs more, split across cycles.
 
 ## Second-Order Check
 
@@ -39,6 +58,10 @@ Consider:
    - Why this addresses the root cause
    - What to watch for in the next benchmark run
 3. Do NOT commit — Evaluator confirms first
+
+## Scratchpad Integration
+
+Before starting, check `docs/scratchpad/` for the latest analyst artifact (type: analysis, status: final). Use its `priority_fix` to focus your work. After making changes, save a scratchpad artifact with `type: fix`, `produces: [list of modified files]`, and `depends_on: [analyst artifact filename]`.
 
 ## What NOT to do
 

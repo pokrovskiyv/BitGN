@@ -23,7 +23,7 @@ BitGN has two agents (pac1-py, sandbox-py) that share harness infrastructure but
 | A-Evolve | Full integration (`evolve.py`, `bitgn_agent.py`) | None |
 | Dispatch | 11-branch `isinstance` chain | 7-branch `isinstance` chain |
 
-Shared: `HarnessServiceClientSync` outer loop, Pydantic `NextStep` structured output, dual LLM backends (cli/api), message history replay pattern.
+Shared: `HarnessServiceClientSync` outer loop, Pydantic `NextStep` structured output, dual LLM backends (nebius/api), message history replay pattern.
 
 ## 3. Architecture Decisions
 
@@ -149,7 +149,7 @@ Five phases, each independently deployable and testable via `make run`.
 
 Extract from `pac1-py/agent.py`:
 - `_format_history()`, `_extract_json()` — prompt formatting
-- `_call_cli()`, `_call_api()`, `call_llm()` — parameterized by `nextstep_type`
+- `_call_nebius()`, `_call_api()`, `call_llm()` — parameterized by `nextstep_type`
 - Main agent loop — parameterized by `DomainProtocol`
 
 ```python
@@ -292,7 +292,7 @@ After each migration phase:
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Dynamic union breaks LLM structured output | Agent can't parse tool calls | Test with both cli and api backends in Phase 2 |
+| Dynamic union breaks LLM structured output | Agent can't parse tool calls | Test with both nebius and api backends in Phase 2 |
 | Registry dispatch slower than isinstance | Negligible (dict lookup vs isinstance chain) | Benchmark if concerned |
 | Protocol conformance missed at runtime | Agent loop crashes | `@runtime_checkable` + assert at init |
 | A-Evolve workspace path assumption | Evolution cycles fail | Phase 3 verification: `evolve.py --dry-run` |

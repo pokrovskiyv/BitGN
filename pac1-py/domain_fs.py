@@ -27,7 +27,7 @@ from bitgn.vm.pcm_pb2 import (
 from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, Field
 
-from defend import wrap_tool_output
+from defend import scan_content, wrap_tool_output
 from domain_protocol import LoopMode, ToolHandler
 
 # ── Tool models ───────────────────────────────────────────────────────────
@@ -58,13 +58,13 @@ class Req_Find(BaseModel):
     name: str
     root: str = "/"
     kind: Literal["all", "files", "dirs"] = "all"
-    limit: Annotated[int, Ge(1), Le(20)] = 10
+    limit: Annotated[int, Ge(1), Le(50)] = 20
 
 
 class Req_Search(BaseModel):
     tool: Literal["search"]
     pattern: str
-    limit: Annotated[int, Ge(1), Le(20)] = 10
+    limit: Annotated[int, Ge(1), Le(50)] = 20
     root: str = "/"
 
 
@@ -115,7 +115,7 @@ class Req_Move(BaseModel):
 
 class NextStep(BaseModel):
     current_state: str
-    plan_remaining_steps_brief: Annotated[list[str], MinLen(1), MaxLen(5)] = Field(
+    plan_remaining_steps_brief: Annotated[list[str], MinLen(1), MaxLen(8)] = Field(
         ...,
         description="briefly explain the next useful steps",
     )
@@ -267,6 +267,10 @@ def _fmt_default(cmd, result) -> str:
     return "{}" if result is None else json.dumps(MessageToDict(result), indent=2)
 
 
+def _fmt_write(cmd, result) -> str:
+    return _render(f"tee {cmd.path}", f"written: {cmd.path} (OK, now read to verify)")
+
+
 def _fmt_delete(cmd, result) -> str:
     return _render(f"rm {cmd.path}", f"deleted: {cmd.path}")
 
@@ -280,12 +284,18 @@ TOOL_REGISTRY: dict[str, ToolHandler] = {
     "search": ToolHandler(model=Req_Search, execute=_exec_search, format=_fmt_search),
     "list": ToolHandler(model=Req_List, execute=_exec_list, format=_fmt_list),
     "read": ToolHandler(model=Req_Read, execute=_exec_read, format=_fmt_read),
-    "write": ToolHandler(model=Req_Write, execute=_exec_write, format=_fmt_default),
-    "delete": ToolHandler(
-        model=Req_Delete, execute=_exec_delete, format=_fmt_delete, destructive=True
+    "write": ToolHandler(
+        model=Req_Write, execute=_exec_write, format=_fmt_write, risk_level="medium"
     ),
-    "mkdir": ToolHandler(model=Req_MkDir, execute=_exec_mkdir, format=_fmt_default),
-    "move": ToolHandler(model=Req_Move, execute=_exec_move, format=_fmt_default, destructive=True),
+    "delete": ToolHandler(
+        model=Req_Delete, execute=_exec_delete, format=_fmt_delete, risk_level="high"
+    ),
+    "mkdir": ToolHandler(
+        model=Req_MkDir, execute=_exec_mkdir, format=_fmt_default, risk_level="medium"
+    ),
+    "move": ToolHandler(
+        model=Req_Move, execute=_exec_move, format=_fmt_default, risk_level="high"
+    ),
     "report_completion": ToolHandler(
         model=ReportTaskCompletion, execute=_exec_answer, format=_fmt_default
     ),
@@ -320,6 +330,11 @@ class FilesystemDomain:
             result = self.dispatch(client, cmd)
             formatted = self.format_result(cmd, result)
             print(f"{CLI_GREEN}AUTO{CLI_CLR}: {formatted}")
+            boot_warnings = scan_content(formatted)
+            if boot_warnings:
+                warning_text = "SECURITY WARNING (boot): " + "; ".join(boot_warnings)
+                print(f"\x1b[33mDEFEND\x1b[0m: {warning_text}")
+                formatted += f"\n{warning_text}"
             messages.append({"role": "user", "content": wrap_tool_output(formatted)})
         return messages
 
@@ -347,6 +362,30 @@ class FilesystemDomain:
 
     def wrap_output(self, content: str) -> str:
         return wrap_tool_output(content)
+
+    def expand_search_result(self, client: Any, cmd: BaseModel, result: Any, txt: str) -> str:
+        """If search returned 0 results and query has 2+ tokens, retry per token."""
+        if getattr(cmd, "tool", "") != "search" or not hasattr(result, "matches"):
+            return txt
+        if result.matches:
+            return txt
+        tokens = cmd.pattern.split()
+        if len(tokens) < 2:
+            return txt
+        extra = []
+        for tok in tokens:
+            sub_cmd = Req_Search(tool="search", pattern=tok, root=cmd.root, limit=cmd.limit)
+            sub = _exec_search(client, sub_cmd)
+            if sub.matches:
+                body = "\n".join(f"{m.path}:{m.line}:{m.line_text}" for m in sub.matches)
+                extra.append(f"rg -e '{tok}' {cmd.root or '/'} (auto-retry)\n{body}")
+        if extra:
+            return (
+                txt
+                + "\nAuto-retry (0 matches for full pattern; individual tokens):\n"
+                + "\n".join(extra)
+            )
+        return txt
 
     def poll_events(self, client: Any) -> list[dict] | None:
         return None

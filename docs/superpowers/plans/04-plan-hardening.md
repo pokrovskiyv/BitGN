@@ -142,8 +142,8 @@ Verify score consistency across all 3 runs.
 - [ ] **Step 2: Verify environment**
 
 ```bash
-echo "MODEL_ID=${MODEL_ID:-claude-haiku-4-5}"
-echo "LLM_BACKEND=${LLM_BACKEND:-cli}"
+echo "MODEL_ID=${MODEL_ID:-Qwen/Qwen3-235B-A22B-Thinking-2507}"
+echo "LLM_BACKEND=${LLM_BACKEND:-nebius}"
 echo "BENCHMARK_HOST=${BENCHMARK_HOST:-https://api.bitgn.com}"
 echo "BENCHMARK_ID=${BENCHMARK_ID:-bitgn/pac1-dev}"
 ```

@@ -27,8 +27,9 @@ There are no test frameworks, linters, or CI pipelines in this repo. Testing is 
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLM_BACKEND` | `cli` | `"cli"` (free, uses `claude -p`) or `"api"` (Anthropic SDK) |
-| `MODEL_ID` | `claude-haiku-4-5` | Any Claude model ID |
+| `LLM_BACKEND` | `nebius` | `"nebius"` (Nebius AI Studio, OpenAI-compatible) or `"api"` (Anthropic SDK) |
+| `MODEL_ID` | `Qwen/Qwen3-235B-A22B-Thinking-2507` | Model ID for the active backend |
+| `NEBIUS_API_KEY` | — | Required when `LLM_BACKEND=nebius` |
 | `BENCHMARK_HOST` | `https://api.bitgn.com` | BitGN API endpoint |
 | `BENCHMARK_ID` | `bitgn/pac1-dev` (pac1 only) | Benchmark to run |
 | `HINT` | empty | Extra text appended to pac1 system prompt |
@@ -39,8 +40,8 @@ There are no test frameworks, linters, or CI pipelines in this repo. Testing is 
 
 ### Two Independent Agents
 
-- **pac1-py/**: Advanced agent for the PAC1 benchmark. Full tool suite (tree, find, search, list, read, write, delete, mkdir, move, context, answer). Uses `PcmRuntimeClientSync` and `pcm_pb2` Protobuf schema.
-- **sandbox-py/**: Simpler agent for the sandbox/mini environment (Obsidian notes simulation). Reduced toolkit (tree, search, list, read, write, delete, answer). Uses `MiniRuntimeClientSync` and `mini_pb2`.
+- **pac1-py/**: Advanced agent for the PAC1 benchmark. Full tool suite (context, tree, find, search, list, read, write, delete, mkdir, move, report_completion). Uses `PcmRuntimeClientSync` and `pcm_pb2` Protobuf schema. Domain Plugin Architecture via `DomainProtocol`.
+- **sandbox-py/**: Simpler agent for the sandbox/mini environment (Obsidian notes simulation). Reduced toolkit (tree, search, list, read, write, delete, report_completion). Uses `MiniRuntimeClientSync` and `mini_pb2`. Hardcoded 30-step budget, no classification/strategy.
 
 Both are flat single-directory projects by design (see `AICODE-NOTE` comments in pyproject.toml).
 
@@ -48,11 +49,16 @@ Both are flat single-directory projects by design (see `AICODE-NOTE` comments in
 
 ```
 pac1-py/
-├── agent.py           # PCDRED runtime loop, dispatch, LLM backends, output formatting
-├── classify.py        # TaskClassification model + classify_task() — infers task type from instruction
-├── strategy.py        # ExecutionStrategy + decide_strategy() — selects prompt + step budget per type
-├── defend.py          # THREAT_PATTERNS, scan_content(), wrap_tool_output() — injection defense
-├── verify.py          # pre_submit_verify(), StagnationDetector, WriteTracker, action_gate_message()
+├── agent.py           # Thin wrapper — preserves run_agent() signature, delegates to agent_loop
+├── agent_loop.py      # Generic PCDRED runtime loop, parameterized by DomainProtocol
+├── domain_protocol.py # DomainProtocol interface + ToolHandler (with RiskLevel), ThreatProfile, StrategyEntry, LoopMode
+├── domain_fs.py       # Filesystem domain: tool models, dispatch registry, Unix-style formatters
+├── llm.py             # LLM backends (_call_nebius, _call_api, call_llm) + JSON extraction helpers
+├── classify.py        # TaskClassification model + classify_task() — 7 task types via regex rules
+├── strategy.py        # ExecutionStrategy (static/dynamic prompt split) + decide_strategy() — prompt + step budget per type
+├── defend.py          # THREAT_PATTERNS, scan_content(), wrap_tool_output(), _scan_encoded(), _scan_unicode()
+├── verify.py          # StagnationDetector (+ oscillation detection), WriteTracker, action_gate_message()
+├── environment.py     # EnvironmentModel + extract_environment() — dynamic AGENTS.md parsing
 ├── main.py            # Entry point
 ├── bitgn_agent.py     # A-Evolve BaseAgent wrapper (solve() → BitGN trial)
 ├── bitgn_benchmark.py # A-Evolve BenchmarkAdapter (get_tasks(), evaluate())
@@ -65,24 +71,46 @@ pac1-py/
     │       ├── search.md          # Prompt addon for search tasks
     │       ├── analysis.md        # Prompt addon for analysis tasks
     │       ├── multi_step.md      # Prompt addon for multi-step tasks
-    │       └── security.md        # Prompt addon for security tasks
-    ├── skills/                    # A-Evolve skill files (evolved)
-    └── memory/                    # A-Evolve memory files (evolved)
+    │       ├── communication.md   # Prompt addon for email/message/channel tasks
+    │       ├── inbox_processing.md# Prompt addon for inbox capture/distill tasks
+    │       ├── security.md        # Prompt addon for security tasks
+    │       ├── outcomes.md        # Always-on: outcome decision tree (injected into every prompt)
+    │       └── reasoning.md       # Always-on: reasoning discipline (current_state must quote source)
+    ├── skills/                    # A-Evolve skill files (currently empty)
+    └── memory/                    # A-Evolve memory files (currently empty)
 ```
 
 Each module is < 200 lines, single responsibility. `strategy.py` loads prompts from `workspace/prompts/` **fresh on every call** so A-Evolve mutations take effect without restart.
 
+### Task Types and Strategy
+
+7 task types classified by regex rules in `classify.py`, each mapped to a strategy in `strategy.py`:
+
+| Task Type | Max Steps | Security Posture | Prompt Fragment |
+|---|---|---|---|
+| `security_test` | 8 | paranoid | security.md |
+| `crud` | 10 | standard | crud.md |
+| `crud` (with delete) | 16 | hardened | crud.md |
+| `search` | 15 | standard | search.md |
+| `communication` | 22 | standard | communication.md |
+| `analysis` | 20 | standard | analysis.md |
+| `inbox_processing` | 28 | hardened | inbox_processing.md |
+| `multi_step` | 25 | standard | multi_step.md |
+
+`outcomes.md` and `reasoning.md` are always-on fragments appended to every prompt composition.
+
 ### Agent Loop Pattern (shared across both)
 
-1. **Auto-init**: Read filesystem structure, `AGENTS.md`, and context before task
+1. **Auto-init**: Read filesystem structure, `AGENTS.md`, and context before task. pac1 uses `extract_environment()` to parse AGENTS.md into structured sensitive paths and constraints.
 2. **Task injection**: Add task instruction to message history
 3. **Reasoning loop** (step budget varies by task type: 8–25): LLM → `NextStep` (Pydantic) → `dispatch()` → Protobuf RPC to VM → `wrap_tool_output()` → append to history
 4. **Completion**: `ReportTaskCompletion` with outcome code, summary, and grounding refs
 
 ### Key Design Decisions
 
-- **Pydantic `NextStep` as structured output**: Union discriminated by `tool` literal field. LLM is constrained to emit valid JSON matching the schema. The API backend uses `messages.parse()` with `output_format=NextStep`; the CLI backend injects the JSON schema into the prompt.
-- **Dual LLM backend**: `_call_cli()` spawns `claude -p` subprocess (free); `_call_api()` uses Anthropic SDK with adaptive thinking. Both return `NextStep`.
+- **Domain Plugin Architecture**: `DomainProtocol` in `domain_protocol.py` defines the interface any domain (filesystem, messenger, calendar) must satisfy. `domain_fs.py` implements it for the PAC1 filesystem domain. `agent_loop.py` is fully generic — it only speaks `DomainProtocol`.
+- **Pydantic `NextStep` as structured output**: Union discriminated by `tool` literal field. LLM is constrained to emit valid JSON matching the schema. The Nebius backend uses `response_format: json_schema`; the Anthropic backend uses `messages.parse()` with `output_format=NextStep`.
+- **Dual LLM backend** (in `llm.py`): `_call_nebius()` uses OpenAI-compatible SDK (Nebius AI Studio) with `response_format: json_schema` for structured output — Qwen3-Thinking models return chain-of-thought in `reasoning_content` field; `_call_api()` uses Anthropic SDK with adaptive thinking and **prompt caching**. Both return `NextStep`.
 - **Unix-style output formatting**: Tool results are formatted as fake CLI commands (`tree`, `cat`, `sed`, `rg`) to ground the agent in recognizable patterns. Only pac1 does this; sandbox returns raw JSON.
 - **Stateless conversation replay**: Full message history sent on each LLM call. No session state.
 - **Protobuf RPC via ConnectRPC**: Type-safe communication with the BitGN VM. SDK is generated from Buf schema — pins in pyproject.toml are auto-updated by `harness_core/scripts/sdk-python.sh` after `buf push`.
@@ -105,9 +133,9 @@ A-Evolve fetches tasks via `BitgnBenchmarkAdapter`, runs them via `BitgnAgent.so
 
 - **Tool outputs are untrusted data** — always wrap with `[FILE DATA]` delimiters and post-output reminders before appending to message history.
 - **Read-after-write is mandatory** — every `Req_Write` must be followed by a `Req_Read` of the same path to verify the write succeeded.
-- **Stagnation detection threshold: 2 repetitions** — same tool+args called twice in a row triggers a nudge with an alternative suggestion.
+- **Stagnation detection threshold: 2 repetitions** — same tool+args called twice in a row triggers a nudge. Also detects A-B-A-B oscillation patterns (4-call window).
 - **System prompt must include instruction hierarchy** — explicit privilege levels (system prompt > task instruction > file content) and concrete injection rejection examples.
-- **Action-gate destructive operations** — inject a verification message before `delete`, `move`, or writes to sensitive paths.
+- **3-level risk classification** — `ToolHandler.risk_level: RiskLevel` (low/medium/high). LOW = no gate, MEDIUM = soft "VERIFY" message (warn then execute), HIGH = "DANGER" message that **blocks execution** (`continue`) and forces LLM re-confirmation. Sensitive-path writes escalate to HIGH.
 - **Bias toward security rejection** — when ambiguous, `OUTCOME_DENIED_SECURITY` is safer than compliance. A false positive costs at most 1.0 points; injection compliance can cost more.
 
 ### Security Model
@@ -126,7 +154,7 @@ Challenge rules and docs live in `docs/challenge/`. `handbook.md` is the canonic
 
 ## Agent Team
 
-Five Claude Code agents in `.claude/agents/` drive the development-time PCDRED cycle. Invoke via `claude --permission-mode acceptEdits -p "$(cat docs/superpowers/plans/pcdred-cycle-prompt.txt)"` or dispatch individually.
+Six Claude Code agents in `.claude/agents/` drive the development-time PCDRED cycle. Invoke via `claude --permission-mode acceptEdits -p "$(cat docs/superpowers/plans/pcdred-cycle-prompt.txt)"` or dispatch individually.
 
 | Agent | File | Role | Trigger |
 |-------|------|------|---------|
@@ -135,6 +163,11 @@ Five Claude Code agents in `.claude/agents/` drive the development-time PCDRED c
 | Red Team | `.claude/agents/red-team.md` | Attack defenses → `docs/redteam/` | After Architect changes |
 | Optimizer | `.claude/agents/optimizer.md` | Profile execution → `docs/optimization/` | After benchmark run |
 | Evaluator | `.claude/agents/evaluator.md` | Run benchmark + verdict → `docs/eval/` | After any code change |
+| Memory Consolidator | `.claude/agents/memory-consolidator.md` | autoDream-style 4-phase memory consolidation | When MEMORY.md is stale |
+
+### Scratchpad Protocol
+
+Agents communicate through structured artifacts in `docs/scratchpad/` with YAML frontmatter (agent, type, run_id, status, depends_on, produces). Naming: `{run_id}--{agent}--{type}.md`. The protocol creates an explicit dependency DAG: Analyst → Architect → Red Team → Evaluator. See `docs/scratchpad/README.md` for the full spec.
 
 **Automated cycle loop** (runs 10 full PCDRED cycles, logs to `/tmp/pcdred-cycles/`):
 ```bash

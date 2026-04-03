@@ -15,7 +15,7 @@ from agent import run_agent
 
 BITGN_URL = os.getenv("BENCHMARK_HOST") or "https://api.bitgn.com"
 
-MODEL_ID = os.getenv("MODEL_ID") or "claude-haiku-4-5"
+MODEL_ID = os.getenv("MODEL_ID") or "Qwen/Qwen3-235B-A22B-Thinking-2507"
 
 CLI_RED = "\x1b[31m"
 CLI_GREEN = "\x1b[32m"

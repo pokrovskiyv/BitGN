@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS = REPO_ROOT / "docs"
 
@@ -74,10 +76,12 @@ class RunRecord:
     timestamp: str  # ISO 8601: "2026-03-30T09:00:00+00:00"
     dt: datetime
     model: str
+    backend: str  # "nebius", "api", or "cli" (legacy)
     score_pct: float
     tasks_passed: int
     tasks_total: int
     tasks: dict  # {task_id: {"score": float, "score_detail": list[str]}}
+    cost_usd: float  # API cost in USD (0.0 for CLI runs)
 
 
 RUN_HISTORY_PATH = REPO_ROOT / "docs" / "run_history.json"
@@ -266,15 +270,18 @@ def load_run_history() -> list:
                 dt = datetime.fromisoformat(ts)
             except Exception:
                 dt = datetime(2026, 1, 1)
+            api_usage = entry.get("api_usage", {})
             records.append(
                 RunRecord(
                     timestamp=ts,
                     dt=dt,
                     model=entry.get("model", "unknown"),
+                    backend=entry.get("backend", "cli"),
                     score_pct=float(entry.get("score_pct", 0.0)),
                     tasks_passed=int(entry.get("tasks_passed", 0)),
                     tasks_total=int(entry.get("tasks_total", 25)),
                     tasks=entry.get("tasks", {}),
+                    cost_usd=float(api_usage.get("cost_usd", 0.0)),
                 )
             )
         except Exception:
@@ -425,7 +432,192 @@ def build_run_digests(
     return digests
 
 
+def build_task_table_df(
+    task_scores_all: dict,
+    latest_eval,
+    task_cache: dict,
+    trace_map: dict,
+    targeted_task: str | None,
+    task_deltas: dict | None = None,
+) -> pd.DataFrame:
+    """Build a sorted DataFrame for the task table view.
+
+    Columns: Задача, ✓/✗, Δ, Задание, Стаб., Причина.
+    Sorted: failing first, then by task number.
+    """
+    task_deltas = task_deltas or {}
+    cf_map: dict = {}
+    if latest_eval:
+        for item in latest_eval.consistently_failing:
+            cf_map[item["task"]] = f"{item['cause']}: {item['notes'][:40]}"
+
+    rows = []
+    for i in range(1, 26):
+        tid = f"t{i:02d}"
+        scores = task_scores_all.get(tid, [])
+        latest_score = scores[-1] if scores else -1
+        passes = sum(1 for s in scores if s >= 1.0)
+        total = len(scores)
+
+        if tid == targeted_task:
+            status = "🎯"
+        elif latest_score >= 1.0:
+            status = "✓"
+        elif latest_score >= 0:
+            status = "✗"
+        else:
+            status = "?"
+
+        stability = f"{passes}/{total}" if total > 0 else "—"
+
+        cached = task_cache.get(tid, {})
+        instruction = cached.get("instruction", "")
+        instr_short = instruction[:50] + "…" if len(instruction) > 50 else instruction
+
+        issue = cf_map.get(tid, "")
+        if not issue:
+            details = cached.get("score_detail", [])
+            issue = details[0][:50] if details else "—"
+
+        delta_val = task_deltas.get(tid, 0.0)
+        if delta_val > 0:
+            delta_mark = "▲"
+        elif delta_val < 0:
+            delta_mark = "▼"
+        else:
+            delta_mark = "—"
+
+        rows.append(
+            {
+                "Задача": tid,
+                "Статус": status,
+                "Δ": delta_mark,
+                "Задание": instr_short,
+                "Стаб.": stability,
+                "Причина": issue,
+            }
+        )
+
+    df = pd.DataFrame(rows)
+    sort_order = {"✗": 0, "🎯": 1, "?": 2, "✓": 3}
+    df["_sort"] = df["Статус"].map(sort_order)
+    df = df.sort_values(["_sort", "Задача"]).drop(columns=["_sort"])
+    return df
+
+
+# ── Dashboard Summary ────────────────────────────────────────────────────────
+
+
+@dataclass
+class DashboardSummary:
+    best_score_pct: float
+    best_score_timestamp: str
+    is_current_best: bool
+    delta_from_best: float
+    regressions: list
+    improvements: list
+    improvement_count: int
+    failure_clusters: dict  # cause -> [task_ids]
+    bottleneck_desc: str
+    bottleneck_tasks: list
+    bottleneck_points: int
+    projected_score_pct: float
+    task_deltas: dict  # task_id -> delta float
+
+
+def compute_dashboard_summary(evals: list, task_scores_all: dict) -> DashboardSummary:  # noqa: ARG001
+    """Pre-compute derived insights for the dashboard hero section."""
+    latest = evals[-1] if evals else None
+
+    # Best-ever from eval reports (not run_history which has spot runs)
+    all_scores = [(e.score_pct, e.timestamp) for e in evals if e.tasks]
+    best_score, best_ts = max(all_scores, key=lambda x: x[0]) if all_scores else (0.0, "")
+    current = latest.score_pct if latest else 0.0
+    is_best = abs(current - best_score) < 0.01 and latest is not None
+
+    # Regressions / improvements from latest eval task deltas
+    regressions = [t.task_id for t in (latest.tasks if latest else []) if t.delta < 0]
+    improvements = [t.task_id for t in (latest.tasks if latest else []) if t.delta > 0]
+    improvement_count = sum(int(t.delta) for t in (latest.tasks if latest else []) if t.delta > 0)
+
+    # Failure clusters from consistently_failing
+    clusters: dict = {}
+    if latest:
+        for item in latest.consistently_failing:
+            clusters.setdefault(item["cause"], []).append(item["task"])
+
+    # Bottleneck from next_priorities[0]
+    bottleneck_desc = ""
+    bottleneck_tasks: list = []
+    bottleneck_points = 0
+    projected = current
+    if latest and latest.next_priorities:
+        prio = latest.next_priorities[0]
+        m = re.match(r"(t\d+(?:\+t\d+)*)\s*\((\w+),\s*(\d+)\s*pts?\):\s*(.+)", prio)
+        if m:
+            bottleneck_tasks = m.group(1).split("+")
+            bottleneck_points = int(m.group(3))
+            bottleneck_desc = m.group(4).strip()[:80]
+            projected = current + (bottleneck_points / 25 * 100)
+        else:
+            bottleneck_desc = prio[:80]
+
+    # Task deltas
+    task_deltas: dict = {}
+    if latest:
+        for t in latest.tasks:
+            task_deltas[t.task_id] = t.delta
+
+    return DashboardSummary(
+        best_score_pct=best_score,
+        best_score_timestamp=best_ts,
+        is_current_best=is_best,
+        delta_from_best=current - best_score,
+        regressions=regressions,
+        improvements=improvements,
+        improvement_count=improvement_count,
+        failure_clusters=clusters,
+        bottleneck_desc=bottleneck_desc,
+        bottleneck_tasks=bottleneck_tasks,
+        bottleneck_points=bottleneck_points,
+        projected_score_pct=projected,
+        task_deltas=task_deltas,
+    )
+
+
+# ── Narrative reports ─────────────────────────────────────────────────────────
+
+
+@dataclass
+class NarrativeReport:
+    timestamp: str
+    dt: datetime
+    title: str  # first heading
+    content: str  # full markdown
+
+
+def parse_narrative_report(path: Path) -> NarrativeReport:
+    text = path.read_text()
+    ts, dt = _parse_ts(path.stem)
+    title_m = re.search(r"^#\s+(.+)", text, re.MULTILINE)
+    title = title_m.group(1).strip() if title_m else path.stem
+    return NarrativeReport(ts, dt, title, text)
+
+
 # ── Loaders ───────────────────────────────────────────────────────────────────
+
+
+def load_narrative_reports() -> list:
+    narr_dir = DOCS / "narratives"
+    if not narr_dir.exists():
+        return []
+    reports = []
+    for p in sorted(narr_dir.glob("run-*.md")):
+        try:
+            reports.append(parse_narrative_report(p))
+        except Exception:
+            pass
+    return sorted(reports, key=lambda r: r.dt)
 
 
 def load_eval_reports() -> list:

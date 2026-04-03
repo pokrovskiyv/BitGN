@@ -766,7 +766,7 @@ def run_agent(model: str, harness_url: str, task_text: str) -> None:
 
 - [ ] **Step 3: Clean up removed code**
 
-Remove the old `system_prompt` variable. Keep `NEXTSTEP_SCHEMA` (still used by `_call_cli`). The `os.environ.get("HINT", "")` is now in `strategy.py`, so remove it from the old prompt location.
+Remove the old `system_prompt` variable. `NEXTSTEP_SCHEMA` was removed with the CLI backend. The `os.environ.get("HINT", "")` is now in `strategy.py`, so remove it from the old prompt location.
 
 - [ ] **Step 4: Verify the refactored agent loads**
 

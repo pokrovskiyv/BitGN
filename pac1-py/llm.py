@@ -1,40 +1,22 @@
-"""LLM call backends and JSON extraction helpers.
-
-Extracted from agent_loop.py to keep each module under 200 lines.
-Provides _call_cli (free via Claude Code subscription) and _call_api
-(Anthropic SDK with adaptive thinking).
-"""
+"""LLM backends: OpenAI-compatible (Nebius, OpenRouter) and Anthropic SDK."""
 
 import json
 import os
 import re
-import subprocess
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
-LLM_BACKEND = os.getenv("LLM_BACKEND", "cli")
-
-
-def _format_history(messages: list[dict]) -> str:
-    parts = []
-    for msg in messages:
-        role = msg["role"].upper()
-        content = msg["content"] if isinstance(msg["content"], str) else json.dumps(msg["content"])
-        parts.append(f"[{role}]:\n{content}")
-    return "\n\n".join(parts)
+LLM_BACKEND = os.getenv("LLM_BACKEND", "nebius")
 
 
 def _extract_json(text: str) -> str:
     """Extract JSON object from text that might have markdown fences or preamble."""
     text = text.strip()
-    # Phase 1: markdown code block
     match = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.DOTALL)
     if match:
         return match.group(1).strip()
-    # Phase 2: direct JSON
     if text.startswith("{"):
         return text
-    # Phase 3: find balanced JSON object (string-aware brace counting)
     start = text.find("{")
     if start >= 0:
         depth = 0
@@ -59,71 +41,190 @@ def _extract_json(text: str) -> str:
                 depth -= 1
                 if depth == 0:
                     return text[start : i + 1]
-        return text[start:]  # unclosed fallback
+        return text[start:]
     return text
 
 
-# Regex to strip hook-injected insight blocks from claude -p output
-_INSIGHT_BLOCK_RE = re.compile(r"★ Insight ─+.*?─{5,}", re.DOTALL)
+def _recover_nextstep(raw_json: str, nextstep_type: type[BaseModel]) -> BaseModel:
+    """Try to recover a NextStep from malformed JSON by filling missing fields."""
+    data = json.loads(raw_json)
+    # If model output a flat tool object, wrap it in NextStep envelope
+    if "tool" in data and "function" not in data:
+        data = {
+            "current_state": "(auto)",
+            "plan_remaining_steps_brief": ["continue"],
+            "task_completed": data.get("tool") == "report_completion",
+            "function": data,
+        }
+    # Fill missing meta fields
+    data.setdefault("current_state", "(auto)")
+    data.setdefault("plan_remaining_steps_brief", ["continue"])
+    data.setdefault("task_completed", False)
+    # Fill missing required fields in ReportTaskCompletion
+    fn = data.get("function", {})
+    if fn.get("tool") == "report_completion":
+        fn.setdefault("completed_steps_laconic", ["(auto)"])
+        fn.setdefault("message", "Task completed")
+        fn.setdefault("outcome", "OUTCOME_OK")
+        # Handle common field name mistakes
+        if "outcome_code" in fn and "outcome" not in fn:
+            fn["outcome"] = fn.pop("outcome_code")
+        data["task_completed"] = True
+    return nextstep_type.model_validate(data)
 
 
-def _call_cli(
-    system: str, messages: list[dict], model: str, nextstep_type: type[BaseModel]
+# --- OpenAI-compatible backends (Nebius, OpenRouter) ---
+
+_nebius_usage = {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "calls": 0}
+_openrouter_usage = {"input_tokens": 0, "output_tokens": 0, "reasoning_tokens": 0, "calls": 0}
+
+_OPENAI_BACKENDS: dict[str, tuple[str, str, dict]] = {
+    "nebius": ("https://api.studio.nebius.com/v1/", "NEBIUS_API_KEY", _nebius_usage),
+    "openrouter": ("https://openrouter.ai/api/v1", "OPEN_ROUTER_API_KEY", _openrouter_usage),
+}
+_openai_clients: dict = {}
+
+
+def get_nebius_usage() -> dict:
+    return dict(_nebius_usage)
+
+
+def get_openrouter_usage() -> dict:
+    return dict(_openrouter_usage)
+
+
+def _call_openai_compat(
+    system_static: str,
+    system_dynamic: str,
+    messages: list[dict],
+    model: str,
+    nextstep_type: type[BaseModel],
 ) -> BaseModel:
-    """Backend: claude -p (free via Claude Code subscription)."""
-    schema = json.dumps(nextstep_type.model_json_schema(), indent=2)
-    conversation = _format_history(messages)
-    prompt = f"""{conversation}
+    """Backend: OpenAI-compatible API (Nebius with json_schema, OpenRouter with json_object)."""
+    import openai
 
-Respond with a single valid JSON object matching this schema. No markdown fences, no explanation — ONLY the raw JSON object:
-{schema}"""
+    base_url, api_key_env, usage = _OPENAI_BACKENDS[LLM_BACKEND]
+    if LLM_BACKEND not in _openai_clients:
+        api_key = os.getenv(api_key_env)
+        if not api_key:
+            raise RuntimeError(f"{api_key_env} environment variable is required")
+        _openai_clients[LLM_BACKEND] = openai.OpenAI(base_url=base_url, api_key=api_key)
+    client = _openai_clients[LLM_BACKEND]
 
-    cmd = [
-        "claude",
-        "-p",
-        "--output-format",
-        "json",
-        "--max-turns",
-        "1",
-        "--system-prompt",
-        system.strip(),
-    ]
-    if model:
-        cmd.extend(["--model", model])
+    system = (system_static + "\n\n" + system_dynamic).strip()
 
-    result = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=240)
-    if result.returncode != 0:
-        raise RuntimeError(f"claude -p failed: {result.stderr}")
+    kwargs: dict = dict(model=model, max_tokens=16384)
+    kwargs["messages"] = [{"role": "system", "content": system}, *messages]
 
-    response = json.loads(result.stdout)
-    raw_text = response.get("result", "")
-    raw_text = _INSIGHT_BLOCK_RE.sub("", raw_text)
-    return nextstep_type.model_validate_json(_extract_json(raw_text))
+    if LLM_BACKEND == "nebius":
+        schema = nextstep_type.model_json_schema()
+        func_prop = schema.get("properties", {}).get("function")
+        if func_prop and "anyOf" in func_prop:
+            func_prop["discriminator"] = {"propertyName": "tool"}
+        kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "next_step", "schema": schema, "strict": False},
+        }
+    else:
+        kwargs["response_format"] = {"type": "json_object"}
+        kwargs["extra_body"] = {"reasoning": {"effort": "high"}, "include_reasoning": True}
+
+    try:
+        resp = client.chat.completions.create(**kwargs)
+    except openai.APIError as exc:
+        raise RuntimeError(f"{LLM_BACKEND} API error: {exc}") from exc
+
+    if not resp.choices:
+        raise RuntimeError(f"{LLM_BACKEND} API returned empty choices")
+    choice = resp.choices[0]
+    if resp.usage:
+        usage["input_tokens"] += resp.usage.prompt_tokens
+        usage["output_tokens"] += resp.usage.completion_tokens
+        details = getattr(resp.usage, "completion_tokens_details", None)
+        if details and getattr(details, "reasoning_tokens", None):
+            usage["reasoning_tokens"] += details.reasoning_tokens
+    usage["calls"] += 1
+
+    reasoning = getattr(choice.message, "reasoning_content", None)
+    if reasoning:
+        print(
+            f"  \x1b[90m[think: {reasoning[:120]}{'...' if len(reasoning) > 120 else ''}]\x1b[0m"
+        )
+
+    raw = _extract_json(choice.message.content or "")
+    try:
+        return nextstep_type.model_validate_json(raw)
+    except ValidationError:
+        return _recover_nextstep(raw, nextstep_type)
+
+
+# --- Anthropic backend ---
+
+_api_usage = {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "calls": 0,
+}
+
+
+def get_api_usage() -> dict:
+    return dict(_api_usage)
 
 
 def _call_api(
-    system: str, messages: list[dict], model: str, nextstep_type: type[BaseModel]
+    system_static: str,
+    system_dynamic: str,
+    messages: list[dict],
+    model: str,
+    nextstep_type: type[BaseModel],
 ) -> BaseModel:
-    """Backend: Anthropic API with structured output + adaptive thinking."""
+    """Backend: Anthropic API with structured output + adaptive thinking + prompt caching."""
     import anthropic
 
     if not hasattr(_call_api, "_client"):
         _call_api._client = anthropic.Anthropic()
 
-    resp = _call_api._client.messages.parse(
+    static_text = system_static.strip()
+    dynamic_text = system_dynamic.strip()
+
+    system_blocks = [{"type": "text", "text": static_text, "cache_control": {"type": "ephemeral"}}]
+    if dynamic_text:
+        system_blocks.append({"type": "text", "text": dynamic_text})
+
+    kwargs = dict(
         model=model,
         max_tokens=16384,
-        system=system.strip(),
+        system=system_blocks,
         messages=messages,
         output_format=nextstep_type,
-        thinking={"type": "adaptive"},
     )
+    if "haiku" not in model:
+        kwargs["thinking"] = {"type": "adaptive"}
+    try:
+        resp = _call_api._client.messages.parse(**kwargs)
+    except anthropic.APIError as exc:
+        raise RuntimeError(f"Anthropic API error: {exc}") from exc
+    _api_usage["input_tokens"] += resp.usage.input_tokens
+    _api_usage["output_tokens"] += resp.usage.output_tokens
+    _api_usage["cache_creation_input_tokens"] += (
+        getattr(resp.usage, "cache_creation_input_tokens", 0) or 0
+    )
+    _api_usage["cache_read_input_tokens"] += getattr(resp.usage, "cache_read_input_tokens", 0) or 0
+    _api_usage["calls"] += 1
+    if resp.parsed_output is None:
+        raise RuntimeError("Anthropic structured output: no parseable text block in response")
     return resp.parsed_output
 
 
 def call_llm(
-    system: str, messages: list[dict], model: str, nextstep_type: type[BaseModel]
+    system_static: str,
+    system_dynamic: str,
+    messages: list[dict],
+    model: str,
+    nextstep_type: type[BaseModel],
 ) -> BaseModel:
     if LLM_BACKEND == "api":
-        return _call_api(system, messages, model, nextstep_type)
-    return _call_cli(system, messages, model, nextstep_type)
+        return _call_api(system_static, system_dynamic, messages, model, nextstep_type)
+    return _call_openai_compat(system_static, system_dynamic, messages, model, nextstep_type)

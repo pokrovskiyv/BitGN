@@ -63,6 +63,10 @@ Save to `docs/redteam/cycle-YYYY-MM-DD-HH.md`:
 [List of recommended fixes, prioritized]
 ```
 
+## Scratchpad Integration
+
+Before starting, check `docs/scratchpad/` for the latest architect artifact (type: fix, status: final). Focus attacks on files listed in `produces`. Save artifact with `type: attack`, `depends_on: [architect artifact]`.
+
 ## What NOT to do
 
 - Do not test attacks that are already covered by existing threat patterns — focus on gaps

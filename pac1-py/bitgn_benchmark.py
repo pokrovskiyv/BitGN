@@ -61,6 +61,9 @@ class BitgnBenchmarkAdapter(BenchmarkAdapter):
                 data = trajectory.conversation[0]
                 score = float(data.get("score", 0.0))
                 detail = "\n".join(data.get("detail") or [])
+                reflection = data.get("reflection")
+                if reflection:
+                    detail += f"\n[REFLECTION] mode={reflection.get('failure_mode', 'unknown')}"
                 return Feedback(success=score >= 1.0, score=score, detail=detail)
             except (TypeError, ValueError) as exc:
                 return Feedback(success=False, score=0.0, detail=f"score parse error: {exc}")

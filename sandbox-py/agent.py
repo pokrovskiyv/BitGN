@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import subprocess
 import time
 from typing import Annotated, Literal
 
@@ -88,10 +87,7 @@ You are a personal business assistant, helpful and precise.
 - Clearly report when tasks are done
 """
 
-NEXTSTEP_SCHEMA = json.dumps(NextStep.model_json_schema(), indent=2)
-
-# LLM_BACKEND: "cli" (free, claude -p) or "api" (Anthropic SDK)
-LLM_BACKEND = os.getenv("LLM_BACKEND", "cli")
+LLM_BACKEND = os.getenv("LLM_BACKEND", "nebius")
 
 CLI_RED = "\x1b[31m"
 CLI_GREEN = "\x1b[32m"
@@ -100,16 +96,6 @@ CLI_BLUE = "\x1b[34m"
 
 
 # ── LLM call (the only part that differs) ──────────────────────────────────
-
-
-def _format_history(messages: list[dict]) -> str:
-    """Format conversation history into a single prompt for claude -p."""
-    parts = []
-    for msg in messages:
-        role = msg["role"].upper()
-        content = msg["content"] if isinstance(msg["content"], str) else json.dumps(msg["content"])
-        parts.append(f"[{role}]:\n{content}")
-    return "\n\n".join(parts)
 
 
 def _extract_json(text: str) -> str:
@@ -126,43 +112,37 @@ def _extract_json(text: str) -> str:
     return text
 
 
-def _call_cli(system: str, messages: list[dict], model: str) -> NextStep:
-    """Backend: claude -p (free via Claude Code subscription)."""
-    conversation = _format_history(messages)
+def _call_nebius(system: str, messages: list[dict], model: str) -> NextStep:
+    """Backend: Nebius AI Studio (OpenAI-compatible) with structured output."""
+    import openai
 
-    prompt = f"""{conversation}
+    if not hasattr(_call_nebius, "_client"):
+        api_key = os.getenv("NEBIUS_API_KEY")
+        if not api_key:
+            raise RuntimeError("NEBIUS_API_KEY environment variable is required")
+        _call_nebius._client = openai.OpenAI(
+            base_url="https://api.studio.nebius.com/v1/",
+            api_key=api_key,
+        )
 
-Respond with a single valid JSON object matching this schema. No markdown fences, no explanation — ONLY the raw JSON object:
-{NEXTSTEP_SCHEMA}"""
+    schema = NextStep.model_json_schema()
+    try:
+        resp = _call_nebius._client.chat.completions.create(
+            model=model,
+            max_tokens=16384,
+            messages=[{"role": "system", "content": system.strip()}, *messages],
+            response_format={
+                "type": "json_schema",
+                "json_schema": {"name": "next_step", "schema": schema, "strict": False},
+            },
+        )
+    except openai.APIError as exc:
+        raise RuntimeError(f"Nebius API error: {exc}") from exc
 
-    cmd = [
-        "claude",
-        "-p",
-        "--output-format",
-        "json",
-        "--max-turns",
-        "1",
-        "--system-prompt",
-        system.strip(),
-    ]
-    if model:
-        cmd.extend(["--model", model])
-
-    result = subprocess.run(
-        cmd,
-        input=prompt,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-
-    if result.returncode != 0:
-        raise RuntimeError(f"claude -p failed: {result.stderr}")
-
-    response = json.loads(result.stdout)
-    raw_text = response.get("result", "")
-
-    return NextStep.model_validate_json(_extract_json(raw_text))
+    if not resp.choices:
+        raise RuntimeError("Nebius API returned empty choices")
+    raw = resp.choices[0].message.content or ""
+    return NextStep.model_validate_json(_extract_json(raw))
 
 
 def _call_api(system: str, messages: list[dict], model: str) -> NextStep:
@@ -187,7 +167,7 @@ def call_llm(system: str, messages: list[dict], model: str) -> NextStep:
     """Route to the active backend."""
     if LLM_BACKEND == "api":
         return _call_api(system, messages, model)
-    return _call_cli(system, messages, model)
+    return _call_nebius(system, messages, model)
 
 
 # ── Dispatch (shared) ──────────────────────────────────────────────────────

@@ -59,6 +59,36 @@ Save to `docs/analysis/run-YYYY-MM-DD-HH.md`:
 
 Do not produce vague recommendations. Each failure gets exactly one root cause and one fix. If you cannot determine the root cause from the available log, say so explicitly rather than guessing.
 
+## Overfitting Prevention
+
+### Category: `model_parse_failure`
+
+If `score_detail` contains `OUTCOME_ERR_INTERNAL`, `no answer provided`, or `LLM FAILURE`, classify as `model_parse_failure`. These are model-capability issues (the LLM failed to produce valid structured output). Only recommend infrastructure fixes:
+- `llm.py` — improve `_recover_nextstep()` JSON recovery
+- `strategy.py` — increase `max_steps` for the affected task type
+- `agent_loop.py` — retry logic, `_FMT_CORRECTION` prompt
+
+NEVER recommend prompt changes for `model_parse_failure` failures.
+
+### Generalizability Assessment
+
+For each failure, add two fields to the report entry:
+
+- **Generalizability**: `HIGH` (infrastructure fix, benefits all tasks/models), `MEDIUM` (prompt pattern fix, benefits a task category), `LOW` (task-specific hack — SKIP this failure)
+- **Zone**: `GREEN` (safe to edit) or `AMBER` (needs justification, overfitting risk)
+
+Apply this test: *"Would this fix help if the task instruction wording changed slightly?"*
+- YES → `HIGH` or `MEDIUM`
+- NO → `LOW` → mark as SKIP, move to next failure
+
+GREEN-zone files (safe): `llm.py`, `verify.py`, `defend.py`, `agent_loop.py`, `strategy.py` (step counts), `system.md`, `outcomes.md`, `reasoning.md`, `security.md`
+
+AMBER-zone files (justify): `inbox_processing.md`, `communication.md`, `multi_step.md`, `classify.py`, `criteria.py`, `hints.py`
+
+## Scratchpad Integration
+
+After saving the analysis report to `docs/analysis/`, also save a scratchpad artifact to `docs/scratchpad/` with the standard frontmatter. Set `type: analysis`, `priority_fix` to your top priority fix, and `status: final`.
+
 ## What NOT to do
 
 - Do not suggest multiple root causes for a single failure — pick the most likely one

@@ -23,4 +23,4 @@ make run                    # all tasks
 make task TASKS='t01 t03'   # specific tasks
 ```
 
-Requires `uv sync` first. Same `LLM_BACKEND` / `ANTHROPIC_API_KEY` env vars as pac1-py.
+Requires `uv sync` first. Default backend is Nebius AI Studio (`LLM_BACKEND=nebius`) with `Qwen/Qwen3-235B-A22B-Thinking-2507`. Set `NEBIUS_API_KEY` in env. For Anthropic: `LLM_BACKEND=api` + `ANTHROPIC_API_KEY`.

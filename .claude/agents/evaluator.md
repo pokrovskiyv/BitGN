@@ -49,6 +49,10 @@ Decision rules:
 - new_mean < old_mean → REVERT
 ```
 
+## Scratchpad Integration
+
+After saving eval results to `docs/eval/`, also save a scratchpad artifact with `type: eval`, `mean_score`, `verdict`, and `depends_on: [all artifacts from this cycle]`.
+
 ## What NOT to do
 
 - Do not run the benchmark if there are uncommitted changes in pac1-py/ — commit first

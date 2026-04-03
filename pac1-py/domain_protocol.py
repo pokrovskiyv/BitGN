@@ -11,6 +11,8 @@ from typing import Any, Callable, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
+RiskLevel = Literal["low", "medium", "high"]
+
 
 @dataclass(frozen=True)
 class ToolHandler:
@@ -19,7 +21,7 @@ class ToolHandler:
     model: type[BaseModel]
     execute: Callable[[Any, BaseModel], Any]
     format: Callable[[BaseModel, Any], str]
-    destructive: bool = False
+    risk_level: RiskLevel = "low"
 
 
 @dataclass(frozen=True)
@@ -88,6 +90,7 @@ class DomainProtocol(Protocol):
     def boot_messages(self, client: Any) -> list[dict]: ...
     def dispatch(self, client: Any, cmd: BaseModel) -> Any: ...
     def format_result(self, cmd: BaseModel, result: Any) -> str: ...
+    def expand_search_result(self, client: Any, cmd: BaseModel, result: Any, txt: str) -> str: ...
     def is_completion(self, cmd: BaseModel) -> bool: ...
     def completion_outcome(self, cmd: BaseModel) -> str | None: ...
     def wrap_output(self, content: str) -> str: ...

@@ -8,7 +8,15 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-TaskType = Literal["crud", "search", "multi_step", "analysis", "security_test", "communication"]
+TaskType = Literal[
+    "crud",
+    "search",
+    "multi_step",
+    "analysis",
+    "security_test",
+    "communication",
+    "inbox_processing",
+]
 ThreatLevel = Literal["none", "low", "high"]
 
 
@@ -25,7 +33,8 @@ class TaskClassification:
 # ── Keyword patterns ──────────────────────────────────────────────────────
 
 _WRITE_SIGNALS = re.compile(
-    r"\b(create|write|add|append|insert|update|set|change|rename|move|process)\b",
+    r"\b(create|write|add|append|insert|update|set|change|rename|move|process|"
+    r"reschedule|capture|distill|schedule)\b",
     re.IGNORECASE,
 )
 _DELETE_SIGNALS = re.compile(r"\b(delete|remove|drop|clear|purge|erase)\b", re.IGNORECASE)
@@ -37,7 +46,8 @@ _ANALYSIS_SIGNALS = re.compile(
     re.IGNORECASE,
 )
 _MULTI_STEP_SIGNALS = re.compile(
-    r"\b(then|after\s+that|next|also|and\s+then|finally|first.*then|step\s+\d|process)\b",
+    r"\b(then|after\s+that|next|also|and\s+then|finally|first.*then|step\s+\d|process|"
+    r"when\s+done|accordingly)\b",
     re.IGNORECASE,
 )
 _COMMUNICATION_SIGNALS = re.compile(
@@ -46,6 +56,38 @@ _COMMUNICATION_SIGNALS = re.compile(
     r"outbox|outbound|channel|discord|telegram|slack)\b",
     re.IGNORECASE,
 )
+_INBOX_PROCESSING_SIGNALS = re.compile(
+    r"\b(process\s+(the\s+)?inbox|from\s+(the\s+)?inbox|inbox\s+file)\b",
+    re.IGNORECASE,
+)
+
+_HIGH_CONFIDENCE_CATEGORIES = frozenset(
+    {
+        "direct_override",
+        "hierarchy_spoof",
+        "role_manipulation",
+        "protected_file",
+        "context_reset",
+        "blanket_instruction",
+    }
+)
+
+
+def _compute_threat_level(threat_warnings: list[str]) -> ThreatLevel:
+    """Category-based threat level: high-confidence categories → immediate 'high'."""
+    if not threat_warnings:
+        return "none"
+    categories = set()
+    for w in threat_warnings:
+        m = re.search(r"\[(\w+)\]", w)
+        if m:
+            categories.add(m.group(1))
+    if categories & _HIGH_CONFIDENCE_CATEGORIES:
+        return "high"
+    if len(categories) >= 2:  # distinct categories, not raw warning count
+        return "high"
+    return "low"
+
 
 _PATH_HINTS = re.compile(
     r"(?:(?:\b\w+/)+\w+(?:\.\w+)?)"  # path/to/file or path/to/dir
@@ -69,11 +111,10 @@ def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassificat
     has_analysis = bool(_ANALYSIS_SIGNALS.search(task_text))
     has_multi_step = bool(_MULTI_STEP_SIGNALS.search(task_text))
     has_communication = bool(_COMMUNICATION_SIGNALS.search(task_text))
+    has_inbox_processing = bool(_INBOX_PROCESSING_SIGNALS.search(task_text))
 
-    # Threat level from defend.py scan results
-    threat_level: ThreatLevel = "none"
-    if threat_warnings:
-        threat_level = "high" if len(threat_warnings) >= 2 else "low"
+    # Threat level: category-based (high-confidence categories → immediate "high")
+    threat_level = _compute_threat_level(threat_warnings)
 
     # Security test — high threat level overrides everything
     if threat_level == "high":
@@ -82,6 +123,17 @@ def classify_task(task_text: str, threat_warnings: list[str]) -> TaskClassificat
             estimated_steps=8,
             threat_level=threat_level,
             requires_write=has_write,
+            requires_delete=has_delete,
+            target_hints=hints,
+        )
+
+    # Inbox processing — "process inbox" (must precede multi_step; "process" hits both)
+    if has_inbox_processing:
+        return TaskClassification(
+            task_type="inbox_processing",
+            estimated_steps=22,
+            threat_level=threat_level,
+            requires_write=True,
             requires_delete=has_delete,
             target_hints=hints,
         )

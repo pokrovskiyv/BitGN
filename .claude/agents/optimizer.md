@@ -44,6 +44,10 @@ Recommendation: [exact change to strategy.py, classify.py, or agent.py]
 ...
 ```
 
+## Scratchpad Integration
+
+Check `docs/scratchpad/` for the latest eval artifact. Focus on tasks with low scores. Save artifact with `type: optimization`, `depends_on: [eval artifact]`.
+
 ## What NOT to do
 
 - Do not recommend changes that trade efficiency for score — score wins

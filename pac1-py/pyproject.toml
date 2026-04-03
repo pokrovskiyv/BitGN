@@ -9,7 +9,9 @@ dependencies = [
     "bitgn-api-protocolbuffers-python==34.1.0.1.20260324104753+6b18c777b19a",
     "pydantic>=2.12.5",
     "anthropic>=0.50.0",
+    "openai>=1.82.0",
     "agent-evolve @ git+https://github.com/A-EVO-Lab/a-evolve.git@633ebb6e219b7a2594f5f7299bba834afb622503",
+    "python-dotenv>=1.2.2",
 ]
 
 [[tool.uv.index]]
