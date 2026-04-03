@@ -228,10 +228,11 @@ def _fallback_outcome(
     if cumulative_threat_count >= 5:
         return "OUTCOME_DENIED_SECURITY"
     has_writes = bool(tracker._writes)
+    has_deletes = bool(tracker._deletes)
     has_reads = bool(tracker._reads)
     if task_type == "communication" and not has_writes:
         return "OUTCOME_NONE_UNSUPPORTED"
-    if has_writes:
+    if has_writes or has_deletes:
         return "OUTCOME_OK"
     if has_reads:
         return "OUTCOME_NONE_CLARIFICATION"
@@ -262,6 +263,8 @@ def report_budget_exhaustion(
         if tracker._writes:
             written = list(tracker._writes)[:2]
             steps.append(f"wrote {', '.join(written)}")
+        if tracker._deletes:
+            steps.append(f"deleted {len(tracker._deletes)} files")
         refs = tracker.all_consulted_paths()
         msg = f"Budget exhausted after exploring {len(refs)} paths"
     fallback = handler.model(
