@@ -123,8 +123,8 @@ class Req_Move(BaseModel):
 
 class NextStep(BaseModel):
     current_state: str
-    plan_remaining_steps_brief: Annotated[list[str], MaxLen(8)] = Field(
-        default_factory=lambda: ["(continue)"],
+    plan_remaining_steps_brief: Annotated[list[str], MinLen(1), MaxLen(8)] = Field(
+        ...,
         description="briefly explain the next useful steps",
     )
     task_completed: bool

@@ -48,6 +48,13 @@ def _extract_json(text: str) -> str:
 def _recover_nextstep(raw_json: str, nextstep_type: type[BaseModel]) -> BaseModel:
     """Try to recover a NextStep from malformed JSON by filling missing fields."""
     data = json.loads(raw_json)
+    # Qwen3 sometimes uses "name" instead of "tool" in flat tool objects
+    if "name" in data and "tool" not in data and "function" not in data:
+        data["tool"] = data.pop("name")
+    # Qwen3 sometimes wraps params in "parameters": {} envelope
+    if "tool" in data and "parameters" in data and "function" not in data:
+        params = data.pop("parameters")
+        data.update(params)
     # If model output a flat tool object, wrap it in NextStep envelope
     if "tool" in data and "function" not in data:
         data = {
@@ -56,10 +63,21 @@ def _recover_nextstep(raw_json: str, nextstep_type: type[BaseModel]) -> BaseMode
             "task_completed": data.get("tool") == "report_completion",
             "function": data,
         }
+    # Fix "name" → "tool" inside function object too
+    fn = data.get("function", {})
+    if "name" in fn and "tool" not in fn:
+        fn["tool"] = fn.pop("name")
+    # Unwrap "parameters" inside function object too
+    if "parameters" in fn and isinstance(fn.get("parameters"), dict):
+        params = fn.pop("parameters")
+        fn.update(params)
     # Fill missing meta fields
     data.setdefault("current_state", "(auto)")
-    data.setdefault("plan_remaining_steps_brief", ["continue"])
     data.setdefault("task_completed", False)
+    # Fix empty plan_remaining_steps_brief (Qwen3 emits [] when task is done)
+    plan = data.get("plan_remaining_steps_brief", [])
+    if not plan:
+        data["plan_remaining_steps_brief"] = ["(continue)"]
     # Fill missing required fields in ReportTaskCompletion
     fn = data.get("function", {})
     if fn.get("tool") == "report_completion":
