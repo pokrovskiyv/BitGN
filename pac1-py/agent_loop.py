@@ -186,8 +186,10 @@ def run_agent_loop(
                     messages.append({"role": "user", "content": gate_rejection})
                     continue
             # Evidence challenge for non-OK outcomes (once)
+            # Skip challenge when DEFEND scanner already confirmed the threat
             deleted = tracker.deleted_paths()
-            if outcome != "OUTCOME_OK" and not outcome_challenged:
+            skip_challenge = outcome == "OUTCOME_DENIED_SECURITY" and cumulative_threats >= 1
+            if outcome != "OUTCOME_OK" and not outcome_challenged and not skip_challenge:
                 outcome_challenged = True
                 messages.append(
                     {

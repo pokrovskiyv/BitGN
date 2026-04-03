@@ -63,9 +63,17 @@ class Req_Find(BaseModel):
 
 class Req_Search(BaseModel):
     tool: Literal["search"]
-    pattern: str
+    pattern: str = ""
+    query: str = ""  # alias: Qwen3 often uses "query" instead of "pattern"
     limit: Annotated[int, Ge(1), Le(50)] = 20
     root: str = "/"
+    path: str = ""  # alias: Qwen3 uses "path" instead of "root"
+
+    def model_post_init(self, __context: Any) -> None:
+        if not self.pattern and self.query:
+            object.__setattr__(self, "pattern", self.query)
+        if self.root == "/" and self.path:
+            object.__setattr__(self, "root", self.path)
 
 
 class Req_List(BaseModel):
@@ -115,8 +123,8 @@ class Req_Move(BaseModel):
 
 class NextStep(BaseModel):
     current_state: str
-    plan_remaining_steps_brief: Annotated[list[str], MinLen(1), MaxLen(8)] = Field(
-        ...,
+    plan_remaining_steps_brief: Annotated[list[str], MaxLen(8)] = Field(
+        default_factory=lambda: ["(continue)"],
         description="briefly explain the next useful steps",
     )
     task_completed: bool
