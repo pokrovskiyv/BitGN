@@ -58,14 +58,15 @@ class Req_Find(BaseModel):
     name: str
     root: str = "/"
     kind: Literal["all", "files", "dirs"] = "all"
-    limit: Annotated[int, Ge(1), Le(50)] = 20
+    limit: Annotated[int, Ge(1), Le(5000)] = 20
 
 
 class Req_Search(BaseModel):
     tool: Literal["search"]
     pattern: str = ""
     query: str = ""  # alias: Qwen3 often uses "query" instead of "pattern"
-    limit: Annotated[int, Ge(1), Le(50)] = 20
+    limit: Annotated[int, Ge(1), Le(5000)] = 20
+    count_only: bool = False  # rg -c mode: return only match count, no lines
     root: str = "/"
     path: str = ""  # alias: Qwen3 uses "path" instead of "root"
 
@@ -185,8 +186,9 @@ def _fmt_tree(cmd, result) -> str:
 def _fmt_list(cmd, result) -> str:
     if not result.entries:
         return _render(f"ls {cmd.path}", ".")
+    n = len(result.entries)
     body = "\n".join(f"{e.name}/" if e.is_dir else e.name for e in result.entries)
-    return _render(f"ls {cmd.path}", body)
+    return _render(f"ls {cmd.path}", f"# {n} entries\n{body}")
 
 
 def _fmt_read(cmd, result) -> str:
@@ -195,14 +197,22 @@ def _fmt_read(cmd, result) -> str:
         e = cmd.end_line if cmd.end_line > 0 else "$"
         return _render(f"sed -n '{s},{e}p' {cmd.path}", result.content)
     command = f"cat -n {cmd.path}" if cmd.number else f"cat {cmd.path}"
-    return _render(command, result.content)
+    content = result.content
+    line_count = content.count("\n") + (1 if content and not content.endswith("\n") else 0)
+    if line_count >= 50:
+        content = f"# {line_count} lines\n{content}"
+    return _render(command, content)
 
 
 def _fmt_search(cmd, result) -> str:
     root = shlex.quote(cmd.root or "/")
     pattern = shlex.quote(cmd.pattern)
+    n = len(result.matches)
+    if cmd.count_only:
+        return _render(f"rg -c -e {pattern} {root}", f"{n} matches")
     body = "\n".join(f"{m.path}:{m.line}:{m.line_text}" for m in result.matches)
-    return _render(f"rg -n --no-heading -e {pattern} {root}", body)
+    suffix = f"\n# {n} matches" + (" (limit reached)" if n >= cmd.limit else "")
+    return _render(f"rg -n --no-heading -e {pattern} {root}", body + suffix)
 
 
 # ── Dispatch helpers ──────────────────────────────────────────────────────
@@ -228,7 +238,8 @@ def _exec_find(vm, cmd):
 
 
 def _exec_search(vm, cmd):
-    return vm.search(SearchRequest(root=cmd.root, pattern=cmd.pattern, limit=cmd.limit))
+    limit = 5000 if cmd.count_only else cmd.limit
+    return vm.search(SearchRequest(root=cmd.root, pattern=cmd.pattern, limit=limit))
 
 
 def _exec_list(vm, cmd):
