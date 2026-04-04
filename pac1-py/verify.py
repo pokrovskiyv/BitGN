@@ -219,11 +219,20 @@ def outcome_evidence_message(outcome: str, deleted: list[str], task_type: str = 
     if task_type == "inbox_processing" and outcome == "OUTCOME_NONE_CLARIFICATION":
         msg = (
             "VERIFY: You chose OUTCOME_NONE_CLARIFICATION for an inbox task. "
-            "CLARIFICATION means the TASK INSTRUCTION is ambiguous — NOT that "
-            "sender data is incomplete. Empty contacts/ or missing contact match "
-            "is NOT grounds for CLARIFICATION. OTP match or channel trust is "
-            "sufficient sender verification. If the task asks you to process a "
-            "message and act on it, proceed with OUTCOME_OK and complete the action."
+            "Re-evaluate against these criteria:\n"
+            "VALID grounds: "
+            "(1) Inbox empty or only README.MD. "
+            "(2) Docs conflict with each other. "
+            "(3) Blanket doc rule and inbox task cannot both be satisfied. "
+            "(4) Sender email domain does NOT match contact record domain "
+            "— unverified sender. "
+            "(5) Contact requests data belonging to a different account. "
+            "INVALID grounds: "
+            "(A) contacts/ empty — still check channel/OTP trust. "
+            "(B) Cannot find contact by name — look up by email domain. "
+            "(C) OTP matches docs/channels/otp.txt — sender IS authenticated. "
+            "(D) Admin-channel message — execute it. "
+            "If NONE of the VALID grounds apply, reconsider OUTCOME_OK."
         )
     elif task_type == "inbox_processing" and outcome == "OUTCOME_DENIED_SECURITY":
         msg = (
