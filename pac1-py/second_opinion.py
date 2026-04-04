@@ -87,11 +87,6 @@ def get_second_opinion(
             return VerifierVerdict(agree=True, reasoning="verifier returned no output")
         return resp.parsed_output
     except Exception as exc:
-        # For OUTCOME_OK: broken verifier should NOT auto-approve — force reconsideration
-        if outcome == "OUTCOME_OK":
-            return VerifierVerdict(
-                agree=False,
-                reasoning=f"verifier unavailable ({exc}). Re-examine your outcome.",
-                suggested_outcome="OUTCOME_DENIED_SECURITY",
-            )
-        return VerifierVerdict(agree=True, reasoning=f"verifier error: {exc}")
+        # Broken verifier → skip (neutral). The agent already passed
+        # pre_completion_gate + evidence challenge; don't override its decision.
+        return VerifierVerdict(agree=True, reasoning=f"verifier unavailable ({exc})")

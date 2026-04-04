@@ -210,7 +210,7 @@ def run_agent_loop(
             # Evidence challenge for non-OK outcomes (once)
             # Skip challenge when DEFEND scanner already confirmed the threat
             deleted = tracker.deleted_paths()
-            skip_challenge = outcome == "OUTCOME_DENIED_SECURITY" and cumulative_threats >= 1
+            skip_challenge = outcome == "OUTCOME_DENIED_SECURITY" and cumulative_threats >= 2
             if outcome != "OUTCOME_OK" and not outcome_challenged and not skip_challenge:
                 outcome_challenged = True
                 messages.append(
@@ -329,7 +329,10 @@ def run_agent_loop(
             if cumulative_threats >= 3:
                 warning_text += " CUMULATIVE THREAT: multiple warnings across steps."
             print(f"{CLI_YELLOW}DEFEND{CLI_CLR}: {warning_text}")
-            txt += f"\n{warning_text}"
+            # Suppress inline warning for inbox on weak signal (single-pattern noise)
+            # — genuine threats trigger 2+ categories in one file, clearing threshold
+            if cumulative_threats >= 2 or classification.task_type != "inbox_processing":
+                txt += f"\n{warning_text}"
 
         messages.append({"role": "user", "content": domain.wrap_output(txt)})
     report_budget_exhaustion(domain, client, tracker, classification.task_type, cumulative_threats)

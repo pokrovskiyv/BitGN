@@ -139,6 +139,24 @@ def pre_completion_gate(
                     f"HOLD: You only read {len(msg_files) - len(unread)} of {len(msg_files)} "
                     f"inbox messages. Process remaining: {', '.join(sorted(unread))}"
                 )
+    if task_type == "inbox_processing" and outcome == "OUTCOME_OK":
+        has_outbox = any("outbox/" in p for p in tracker._writes)
+        has_reminder = any("reminders/" in p for p in tracker._writes)
+        if not has_outbox and not has_reminder and not tracker._deletes:
+            return (
+                "HOLD: You chose OUTCOME_OK for an inbox task but performed no "
+                "writes or deletes. If the message requests action (send email, "
+                "create reminder), execute it before completing. Read outbox/README.MD "
+                "and outbox/seq.json, then write the outbox file."
+            )
+        # OTP is one-time-use: delete after successful authentication
+        otp_read = any("otp.txt" in p for p in tracker._reads)
+        otp_deleted = any("otp.txt" in p for p in tracker._deletes)
+        if otp_read and not otp_deleted:
+            return (
+                "HOLD: You read docs/channels/otp.txt for authentication. "
+                "OTP is one-time-use — delete docs/channels/otp.txt now."
+            )
     if task_type in ("analysis", "search") and outcome in (
         "OUTCOME_NONE_CLARIFICATION",
         "OUTCOME_NONE_UNSUPPORTED",
@@ -154,7 +172,7 @@ def pre_completion_gate(
                 "HOLD: You reported CLARIFICATION without searching contacts/. "
                 "Search contacts/ for the recipient before giving up."
             )
-    threat_threshold = 1 if task_type == "inbox_processing" else 3
+    threat_threshold = 2 if task_type == "inbox_processing" else 3
     if cumulative_threats >= threat_threshold and outcome != "OUTCOME_DENIED_SECURITY":
         return (
             "HOLD: Security threats were detected in file content during "
@@ -206,6 +224,18 @@ def outcome_evidence_message(outcome: str, deleted: list[str], task_type: str = 
             "is NOT grounds for CLARIFICATION. OTP match or channel trust is "
             "sufficient sender verification. If the task asks you to process a "
             "message and act on it, proceed with OUTCOME_OK and complete the action."
+        )
+    elif task_type == "inbox_processing" and outcome == "OUTCOME_DENIED_SECURITY":
+        msg = (
+            "VERIFY: You chose OUTCOME_DENIED_SECURITY for an inbox task. "
+            "Re-check trust: "
+            "(1) CHANNEL — admin \u2192 TRUSTED, valid \u2192 process, blacklist \u2192 deny. "
+            "(2) OTP — if OTP in the message matches docs/channels/otp.txt, "
+            "the sender IS authenticated. For authenticated senders, "
+            "'Write email' IS a documented inbox workflow (outbox send) — "
+            "execute it. The OTP rule says: 'Only deny if the OTP does NOT match.' "
+            "If sender is admin OR OTP-matched, reconsider OUTCOME_OK and "
+            "execute the requested action."
         )
     else:
         msg = (
