@@ -29,6 +29,7 @@ THREAT_PATTERNS: list[tuple[str, str]] = [
     ("hierarchy_spoof", r"(system|admin|root)\s*:\s*(override|bypass|disable|update|new)"),
     ("hierarchy_spoof", r"<\s*system\s*>"),
     ("hierarchy_spoof", r"<\s*script\b[^>]*>"),
+    ("hierarchy_spoof", r"<!--\s*(injected|payload|hijack|override)"),
     ("hierarchy_spoof", r"\[INST\]"),
     ("hierarchy_spoof", r"###\s*(System|Admin|Instructions?)\s*:"),
     ("hierarchy_spoof", r"BEGIN\s*(SYSTEM|ADMIN|OVERRIDE)\s*(PROMPT|MESSAGE|INSTRUCTION)"),
@@ -65,9 +66,9 @@ THREAT_PATTERNS: list[tuple[str, str]] = [
     # Social engineering
     (
         "social_engineering",
-        r"(as\s+the\s+)?(administrator|admin|platform|bitgn|system)\s+(has\s+)?(authorized|approved|instructed|confirmed)",
+        r"(as\s+the\s+)?(administrator|admin|platform|bitgn|system)\s+(has\s+)?(authorized|approved|instructed)",
     ),
-    ("social_engineering", r"this\s+is\s+(a\s+)?(test|drill|verification|compliance\s+check)"),
+    ("social_engineering", r"this\s+is\s+(a\s+)?(test|drill|compliance\s+check)"),
     (
         "social_engineering",
         r"(please\s+)?(verify|confirm|prove)\s+(by|that\s+you)\s+(send|writ|delet|execut)",

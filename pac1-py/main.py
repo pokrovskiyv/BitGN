@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 import textwrap
 from datetime import UTC, datetime
@@ -47,6 +48,11 @@ _RATES_ANTHROPIC = {
 }
 
 CLI_RED, CLI_GREEN, CLI_BLUE, CLI_CLR = "\x1b[31m", "\x1b[32m", "\x1b[34m", "\x1b[0m"
+
+
+def _task_sort_key(task_id: str) -> tuple[int, str]:
+    m = re.search(r"(\d+)$", task_id)
+    return (int(m.group(1)), task_id) if m else (10**9, task_id)
 
 
 def _save_task_cache(entry: dict) -> None:
@@ -112,13 +118,23 @@ def _collect_usage() -> dict | None:
     return None
 
 
-def _append_run_history(task_data: dict, scores: list) -> None:
+def _append_run_history(
+    task_data: dict,
+    scores: list,
+    *,
+    benchmark_id: str,
+    benchmark_task_count: int,
+    is_partial_run: bool,
+) -> None:
     if not scores:
         return
     tasks_passed = sum(1 for _, s in scores if s >= 1.0)
     tasks_total = len(scores)
     record = {
         "timestamp": datetime.now(UTC).isoformat(),
+        "benchmark_id": benchmark_id,
+        "benchmark_task_count": benchmark_task_count,
+        "is_partial_run": is_partial_run,
         "model": MODEL_ID,
         "backend": LLM_BACKEND,
         "score_pct": round(tasks_passed / tasks_total * 100.0, 2),
@@ -182,12 +198,10 @@ def _generate_eval_report(task_data: dict, scores: list) -> None:
     previous = history[-2]
     cur_tasks = current.get("tasks", {})
     prev_tasks = previous.get("tasks", {})
-    all_ids = sorted(set(cur_tasks) | set(prev_tasks))
-
     wins, losses, stable_pass, stable_fail = [], [], [], []
     # Only compare tasks present in BOTH runs (partial runs skip missing tasks)
-    common_ids = sorted(set(cur_tasks) & set(prev_tasks))
-    cur_only = sorted(set(cur_tasks) - set(prev_tasks))
+    common_ids = sorted(set(cur_tasks) & set(prev_tasks), key=_task_sort_key)
+    cur_only = sorted(set(cur_tasks) - set(prev_tasks), key=_task_sort_key)
     for tid in common_ids:
         cur_s = cur_tasks[tid].get("score", -1)
         prev_s = prev_tasks[tid].get("score", -1)
@@ -242,7 +256,7 @@ def _generate_eval_report(task_data: dict, scores: list) -> None:
         "## Per-Task Scores",
         "",
     ]
-    for tid in sorted(cur_tasks):
+    for tid in sorted(cur_tasks, key=_task_sort_key):
         cur_s = cur_tasks[tid].get("score", -1)
         mark = "PASS" if cur_s >= 1 else "FAIL"
         lines.append(f"| {tid} | {cur_s:.2f} | {mark} |")
@@ -328,6 +342,7 @@ def main() -> None:
             f"with {len(res.tasks)} tasks.\n{CLI_GREEN}{res.description}{CLI_CLR}"
         )
 
+        benchmark_task_count = len(res.tasks)
         pending = [
             t
             for t in res.tasks
@@ -366,12 +381,19 @@ def main() -> None:
         print(f"{CLI_RED}Interrupted — progress saved, use --resume to continue{CLI_CLR}")
 
     if task_data:
-        _append_run_history(task_data, scores)
+        is_partial_run = bool(task_filter) or len(task_data) < benchmark_task_count
+        _append_run_history(
+            task_data,
+            scores,
+            benchmark_id=res.benchmark_id,
+            benchmark_task_count=benchmark_task_count,
+            is_partial_run=is_partial_run,
+        )
         _generate_eval_report(task_data, scores)
         PROGRESS_PATH.unlink(missing_ok=True)
 
     if scores:
-        for task_id, score in sorted(scores):
+        for task_id, score in sorted(scores, key=lambda item: _task_sort_key(item[0])):
             style = CLI_GREEN if score == 1 else CLI_RED
             print(f"{task_id}: {style}{score:0.2f}{CLI_CLR}")
         total = sum(s for _, s in scores) / len(scores) * 100.0

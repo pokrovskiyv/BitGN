@@ -329,9 +329,24 @@ def run_agent_loop(
             if cumulative_threats >= 3:
                 warning_text += " CUMULATIVE THREAT: multiple warnings across steps."
             print(f"{CLI_YELLOW}DEFEND{CLI_CLR}: {warning_text}")
-            # Suppress inline warning for inbox on weak signal (single-pattern noise)
-            # — genuine threats trigger 2+ categories in one file, clearing threshold
-            if cumulative_threats >= 2 or classification.task_type != "inbox_processing":
+            # Category-based suppression: always show high-confidence threats to LLM;
+            # suppress low-confidence (social_engineering) noise for inbox tasks
+            _HIGH_CONF = {
+                "direct_override",
+                "hierarchy_spoof",
+                "role_manipulation",
+                "protected_file",
+                "context_reset",
+                "blanket_instruction",
+                "exfiltration",
+                "blacklist_bypass",
+            }
+            has_high_conf = any(f"[{cat}]" in w for w in content_warnings for cat in _HIGH_CONF)
+            if (
+                has_high_conf
+                or cumulative_threats >= 2
+                or classification.task_type != "inbox_processing"
+            ):
                 txt += f"\n{warning_text}"
 
         messages.append({"role": "user", "content": domain.wrap_output(txt)})
