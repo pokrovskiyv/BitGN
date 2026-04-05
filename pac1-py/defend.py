@@ -7,7 +7,7 @@ THREAT_PATTERNS: list[tuple[str, str]] = [
     # Direct override
     (
         "direct_override",
-        r"ignore\s+(all\s+)?(prior|previous|above|before)\s+(instructions?|rules?|constraints?)",
+        r"ignore\s+(all\s+)?(prior|previous|above|before|local)\s+(instructions?|rules?|constraints?)",
     ),
     ("direct_override", r"disregard\s+(all\s+)?(prior|previous|above|earlier)"),
     ("direct_override", r"forget\s+(everything|all|what)\s+(you|about)"),
@@ -104,6 +104,7 @@ THREAT_PATTERNS: list[tuple[str, str]] = [
     ("format_hijack", r"FORMAT\s+CORRECTION\s*:"),
     ("hierarchy_spoof", r"\[\[\s*paste\s*hijack"),
     ("hierarchy_spoof", r"\[\[\s*(system|admin|override|hijack)"),
+    ("hierarchy_spoof", r"\[\[.*::\s*priority\s*="),
     ("hierarchy_spoof", r"<<<\s*(SYS|SYSTEM|ADMIN|OVERRIDE|END_OVERRIDE)"),
     ("encoding", r"(decode|deobfuscate|decrypt|interpret)\s+(this|the\s+following|below)"),
     ("encoding", r"base64\s*:"),

@@ -293,6 +293,7 @@ def _run_single_task(client, benchmark_id: str, task) -> tuple[str, dict] | None
             "prompt_tokens": prompt_tok,
             "completion_tokens": compl_tok,
             "steps": agent_result.steps_detail if agent_result else [],
+            "verifier_verdict": agent_result.verifier_verdict if agent_result else None,
         }
         data = {
             "instruction": trial.instruction,

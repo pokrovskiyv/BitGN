@@ -69,6 +69,7 @@ _HIGH_CONFIDENCE_CATEGORIES = frozenset(
         "protected_file",
         "context_reset",
         "blanket_instruction",
+        "exfiltration",
     }
 )
 

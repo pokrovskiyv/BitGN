@@ -40,9 +40,9 @@ def _load_verifier_prompt() -> str:
 
 def needs_second_opinion(classification: TaskClassification, outcome: str) -> bool:
     """Decide whether to spawn a verifier agent for this completion."""
-    # Never second-guess security denials — scanner + evidence challenge already validated
+    # Inbox tasks have nuanced sender trust (OTP, channels) where over-denial is common
     if outcome == "OUTCOME_DENIED_SECURITY":
-        return False
+        return classification.task_type == "inbox_processing"
     if classification.task_type == "inbox_processing":
         return True
     if classification.task_type == "communication" and outcome == "OUTCOME_OK":
@@ -64,7 +64,7 @@ def get_second_opinion(
     if not verifier_prompt:
         return VerifierVerdict(agree=True, reasoning="verifier prompt missing")
 
-    evidence_block = "\n---\n".join(recent_evidence[-4:]) if recent_evidence else "(none)"
+    evidence_block = "\n---\n".join(recent_evidence[-6:]) if recent_evidence else "(none)"
 
     user_content = (
         f"TASK INSTRUCTION:\n{task_text}\n\n"

@@ -35,6 +35,7 @@ class AgentResult:
     step_count: int
     tool_call_count: int
     steps_detail: list  # [{step, tool, args, plan, planning_ms, dispatch_ms}]
+    verifier_verdict: dict | None = None
 
 
 CLI_RED, CLI_GREEN, CLI_BLUE, CLI_YELLOW, CLI_CLR = (
@@ -92,6 +93,7 @@ def run_agent_loop(
 
     tool_call_count = 0
     steps_detail: list[dict] = []
+    verifier_data: dict | None = None
     loop_started = time.time()
 
     for i in range(strategy.max_steps):
@@ -142,6 +144,14 @@ def run_agent_loop(
             effective_risk = "high"
         # Authorized deletes: downgrade from HIGH (blocks dispatch) to MEDIUM (warn only)
         if effective_risk == "high" and tool_name == "delete" and classification.requires_delete:
+            effective_risk = "medium"
+        # OTP is one-time-use: after agent verified OTP, allow deletion without blocking
+        if (
+            effective_risk == "high"
+            and tool_name == "delete"
+            and "otp.txt" in cmd_path
+            and any("otp.txt" in p for p in tracker._reads)
+        ):
             effective_risk = "medium"
         # Inbox pre-write: block first write to non-standard path until agent confirms
         if (
@@ -210,7 +220,11 @@ def run_agent_loop(
             # Evidence challenge for non-OK outcomes (once)
             # Skip challenge when DEFEND scanner already confirmed the threat
             deleted = tracker.deleted_paths()
-            skip_challenge = outcome == "OUTCOME_DENIED_SECURITY" and cumulative_threats >= 2
+            skip_challenge = (
+                outcome == "OUTCOME_DENIED_SECURITY"
+                and cumulative_threats >= 2
+                and classification.task_type != "inbox_processing"
+            )
             if outcome != "OUTCOME_OK" and not outcome_challenged and not skip_challenge:
                 outcome_challenged = True
                 messages.append(
@@ -227,21 +241,32 @@ def run_agent_loop(
             if not second_opinion_done and needs_second_opinion(classification, outcome):
                 recent_evidence = [
                     m["content"]
-                    for m in messages[-8:]
+                    for m in messages[-12:]
                     if m["role"] == "user" and "[FILE DATA" in m.get("content", "")
                 ]
                 verdict = get_second_opinion(
                     task_text, outcome, cmd.message, recent_evidence, model
                 )
                 second_opinion_done = True
+                verifier_data = {
+                    "agree": verdict.agree,
+                    "reasoning": verdict.reasoning,
+                    "suggested_outcome": verdict.suggested_outcome,
+                    "proposed_outcome": outcome,
+                }
                 print(
                     f"{CLI_YELLOW}VERIFIER{CLI_CLR}: {'AGREE' if verdict.agree else 'DISAGREE'} — {verdict.reasoning[:80]}"
                 )
-                if not verdict.agree and verdict.suggested_outcome:
+                if not verdict.agree:
+                    suggested_part = (
+                        f"Suggested: {verdict.suggested_outcome}. "
+                        if verdict.suggested_outcome
+                        else "No specific alternative suggested. "
+                    )
                     override_msg = (
                         f"SECOND OPINION: An independent verifier DISAGREES with {outcome}. "
                         f"Reasoning: {verdict.reasoning} "
-                        f"Suggested: {verdict.suggested_outcome}. "
+                        f"{suggested_part}"
                         f"Re-evaluate your evidence and choose the correct outcome."
                     )
                     messages.append({"role": "user", "content": override_msg})
@@ -296,6 +321,7 @@ def run_agent_loop(
                 step_count=i + 1,
                 tool_call_count=tool_call_count,
                 steps_detail=steps_detail,
+                verifier_verdict=verifier_data,
             )
 
         # ── TRACKING ──────────────────────────────────────────────
@@ -358,4 +384,5 @@ def run_agent_loop(
         step_count=strategy.max_steps,
         tool_call_count=tool_call_count,
         steps_detail=steps_detail,
+        verifier_verdict=verifier_data,
     )
