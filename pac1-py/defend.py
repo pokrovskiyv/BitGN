@@ -114,6 +114,11 @@ THREAT_PATTERNS: list[tuple[str, str]] = [
         r"(after|upon|when)\s+(completing?|finishing?|each|every|any)\s+(task|step|workflow|request)\b"
         r".{0,60}\b(always|must|will)\b.{0,40}\b(write|create|save|send|delete|upload|append)\b",
     ),
+    # Conditional-imperative injection (if X => remove/send/delete)
+    (
+        "direct_override",
+        r"if\s+\S.{0,40}=>\s*(remove|delete|send|write|execute|forward|exfiltrat)",
+    ),
 ]
 
 _COMPILED = [(cat, re.compile(pat, re.IGNORECASE)) for cat, pat in THREAT_PATTERNS]
