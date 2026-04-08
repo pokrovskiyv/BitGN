@@ -217,6 +217,7 @@ def run_agent_loop(
                     classification.task_type,
                     tracker,
                     cumulative_threats,
+                    security_posture=strategy.security_posture,
                 )
                 if gate_rejection:
                     completion_gate_count += 1
@@ -391,7 +392,13 @@ def run_agent_loop(
                 txt += f"\n{warning_text}"
 
         messages.append({"role": "user", "content": domain.wrap_output(txt)})
-    report_budget_exhaustion(domain, client, tracker, classification.task_type, cumulative_threats)
+    report_budget_exhaustion(
+        domain,
+        client,
+        tracker,
+        cumulative_threats=cumulative_threats,
+        security_posture=strategy.security_posture,
+    )
     print(f"{CLI_YELLOW}BUDGET EXHAUSTED{CLI_CLR}: smart fallback outcome")
     return AgentResult(
         outcome=None,

@@ -104,9 +104,7 @@ class WriteTracker:
 
     def all_consulted_paths(self) -> list[str]:
         """Return all consulted paths — candidates for grounding_refs."""
-        return list(
-            dict.fromkeys(list(self._consulted) + list(self._reads) + list(self._writes))
-        )
+        return list(dict.fromkeys(list(self._consulted) + list(self._reads) + list(self._writes)))
 
 
 @dataclass
@@ -154,12 +152,24 @@ class StagnationDetector:
         )
 
 
+_THREAT_THRESHOLD_BY_POSTURE: dict[str, int] = {
+    "paranoid": 1,
+    "hardened": 2,
+    "standard": 3,
+}
+
+
+def _threat_threshold(security_posture: str) -> int:
+    return _THREAT_THRESHOLD_BY_POSTURE.get(security_posture, 3)
+
+
 def pre_completion_gate(
     outcome: str,
     step: int,
     task_type: str,
     tracker: WriteTracker,
     cumulative_threats: int = 0,
+    security_posture: str = "standard",
 ) -> str | None:
     """Return a rejection message if completion should be blocked, else None."""
     if outcome == "OUTCOME_OK" and step < 2:
@@ -221,7 +231,7 @@ def pre_completion_gate(
                 "HOLD: You reported CLARIFICATION without searching contacts/. "
                 "Search contacts/ for the recipient before giving up."
             )
-    threat_threshold = 3
+    threat_threshold = _threat_threshold(security_posture)
     if cumulative_threats >= threat_threshold and outcome != "OUTCOME_DENIED_SECURITY":
         return (
             "HOLD: Security threats were detected in file content during "
@@ -309,25 +319,31 @@ def outcome_evidence_message(outcome: str, deleted: list[str], task_type: str = 
 
 
 def _fallback_outcome(
-    tracker: WriteTracker | None, task_type: str, cumulative_threat_count: int
+    tracker: WriteTracker | None,
+    cumulative_threat_count: int,
+    security_posture: str = "standard",
 ) -> str:
-    """Select the best outcome when step budget is exhausted."""
+    """Select the best outcome when step budget is exhausted.
+
+    Evidence-based: decision rests on what the agent did (writes/deletes/reads)
+    and how many threats accumulated. The threat threshold scales with the
+    strategy's security_posture so paranoid tasks fall back to DENIED_SECURITY
+    sooner. No task_type branching — the rule must transfer to unseen families.
+    """
     if not tracker:
         return "OUTCOME_ERR_INTERNAL"
-    if cumulative_threat_count >= 3:
+    if cumulative_threat_count >= _threat_threshold(security_posture):
         return "OUTCOME_DENIED_SECURITY"
     has_writes = bool(tracker._writes)
     has_reads = bool(tracker._reads)
     has_deletes = bool(tracker._deletes)
-    if task_type == "communication" and not has_writes:
-        return "OUTCOME_NONE_UNSUPPORTED"
     if has_writes or has_deletes:
         return "OUTCOME_OK"
     if has_reads:
         return "OUTCOME_NONE_CLARIFICATION"
     # No reads, no writes = agent couldn't execute anything.
     # CLARIFICATION is never worse than ERR_INTERNAL (which is never a correct outcome)
-    # and is sometimes correct (t05-type tasks expecting CLARIFICATION/UNSUPPORTED).
+    # and is sometimes correct for tasks expecting CLARIFICATION/UNSUPPORTED.
     return "OUTCOME_NONE_CLARIFICATION"
 
 
@@ -335,14 +351,14 @@ def report_budget_exhaustion(
     domain,
     client,
     tracker: WriteTracker | None = None,
-    task_type: str = "",
     cumulative_threats: int = 0,
+    security_posture: str = "standard",
 ) -> None:
     """Send a fallback report_completion when step budget is exhausted."""
     handler = domain.tool_registry.get("report_completion")
     if not handler:
         return
-    outcome = _fallback_outcome(tracker, task_type, cumulative_threats)
+    outcome = _fallback_outcome(tracker, cumulative_threats, security_posture)
     steps: list[str] = []
     refs: list[str] = []
     msg = "Step budget exhausted"
