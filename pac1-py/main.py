@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import textwrap
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -160,6 +161,7 @@ def _append_run_history(
     tasks_passed = sum(1 for _, s in scores if s >= 1.0)
     tasks_total = len(scores)
     record = {
+        "run_id": str(uuid.uuid4()),
         "timestamp": datetime.now(UTC).isoformat(),
         "benchmark_id": benchmark_id,
         "benchmark_task_count": benchmark_task_count,
