@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 import textwrap
@@ -7,7 +8,22 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Layered .env loading: base .env first, then .env.final (or
+# .env.final.example as fallback) overrides when RUN_PROFILE=final. Without
+# this layering, dev values in .env (e.g. LLM_BACKEND=nebius, MODEL_ID=Qwen3)
+# would silently override the final profile defaults in settings.py and the
+# Sonnet+Haiku scaffold would be bypassed at runtime.
 load_dotenv()
+if os.getenv("RUN_PROFILE", "").strip().lower() == "final":
+    _here = Path(__file__).parent
+    _final_env = _here / ".env.final"
+    if not _final_env.exists():
+        _final_env = _here / ".env.final.example"
+    if _final_env.exists():
+        load_dotenv(_final_env, override=True)
+        print(f"[final-profile] loaded {_final_env.name} (overrides applied)")
+    else:
+        print("[final-profile] WARNING: no .env.final or .env.final.example found")
 
 from bitgn.harness_connect import HarnessServiceClientSync
 from bitgn.harness_pb2 import (
