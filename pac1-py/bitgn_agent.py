@@ -11,7 +11,6 @@ without making another API call.
 """
 
 import logging
-import os
 from pathlib import Path
 
 from agent_evolve.protocol.base_agent import BaseAgent
@@ -20,6 +19,7 @@ from bitgn.harness_connect import HarnessServiceClientSync
 from bitgn.harness_pb2 import EndTrialRequest, StartPlaygroundRequest
 
 from agent import run_agent
+from settings import SETTINGS
 
 
 class BitgnAgent(BaseAgent):
@@ -33,9 +33,9 @@ class BitgnAgent(BaseAgent):
         model: str | None = None,
     ) -> None:
         super().__init__(workspace_dir)
-        self._benchmark_id = benchmark_id or os.getenv("BENCHMARK_ID", "bitgn/pac1-dev")
-        self._host = host or os.getenv("BENCHMARK_HOST", "https://api.bitgn.com")
-        self._model = model or os.getenv("MODEL_ID", "Qwen/Qwen3-235B-A22B-Thinking-2507")
+        self._benchmark_id = benchmark_id or SETTINGS.benchmark_id
+        self._host = host or SETTINGS.benchmark_host
+        self._model = model or SETTINGS.primary_model
         self._harness_client = HarnessServiceClientSync(self._host)
 
     @staticmethod

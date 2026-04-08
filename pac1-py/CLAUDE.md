@@ -7,6 +7,7 @@ Module-specific guidance for the pac1-py agent (BitGN PAC1 benchmark).
 PCDRED pipeline: `classify.py` → `strategy.py` → `agent_loop.py` → `verify.py` → `defend.py`.
 
 Domain Plugin Architecture: `agent.py` is a thin wrapper that delegates to `agent_loop.py` (generic loop parameterized by `DomainProtocol`) + `domain_fs.py` (filesystem domain implementation). LLM backends live in `llm.py`. Environment parsing in `environment.py`.
+Runtime config is centralized in `settings.py` so the primary model, verifier model, backend, and benchmark target stay aligned across `main.py`, `bitgn_agent.py`, and `second_opinion.py`.
 
 Each module < 200 lines, single responsibility. The project is **flat by design** — no subdirectories, no packaging (`package = false`). Do not restructure.
 
@@ -32,3 +33,16 @@ make task TASKS='t01 t03'   # specific tasks
 ```
 
 Requires `uv sync` first. Default backend is Nebius AI Studio (`LLM_BACKEND=nebius`) with `Qwen/Qwen3-235B-A22B-Thinking-2507`. Set `NEBIUS_API_KEY` in `.env`. For Anthropic: `LLM_BACKEND=api` + `ANTHROPIC_API_KEY`.
+
+For the final Anthropic profile, start from `pac1-py/.env.final.example`:
+- profile switch: `RUN_PROFILE=final`
+- primary model: `MODEL_ID=claude-sonnet-4-6`
+- verifier model: `VERIFIER_MODEL=claude-haiku-4-5`
+- verifier policy: `VERIFIER_POLICY=adaptive`
+- recommended parallelism: `PARALLEL=4`
+- optional explicit aliases: `PRIMARY_MODEL_ID`, `VERIFIER_MODEL_ID`, `PRIMARY_LLM_BACKEND`
+
+Final runner shortcuts:
+- `make run-final`
+- `make resume-final`
+- `make task-final TASKS='t01 t03'`

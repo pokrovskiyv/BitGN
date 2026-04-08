@@ -5,8 +5,9 @@ import os
 import re
 
 from pydantic import BaseModel, ValidationError
+from settings import SETTINGS
 
-LLM_BACKEND = os.getenv("LLM_BACKEND", "nebius")
+LLM_BACKEND = SETTINGS.llm_backend
 
 
 def _extract_json(text: str) -> str:

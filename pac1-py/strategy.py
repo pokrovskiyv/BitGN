@@ -18,10 +18,15 @@ SecurityPosture = Literal["standard", "hardened", "paranoid"]
 
 @dataclass(frozen=True)
 class ExecutionStrategy:
-    system_prompt: str
+    system_prompt_static: str
+    system_prompt_dynamic: str
     max_steps: int
     security_posture: SecurityPosture
     pre_submit_verification: bool
+
+    @property
+    def system_prompt(self) -> str:
+        return f"{self.system_prompt_static}{self.system_prompt_dynamic}"
 
 
 # ── Load prompts from workspace files ─────────────────────────────────────
@@ -51,7 +56,21 @@ _STRATEGY_TABLE: dict[str, tuple[int, SecurityPosture, bool]] = {
 }
 
 
-def decide_strategy(classification: TaskClassification) -> ExecutionStrategy:
+def _runtime_tool_surface(domain) -> str:
+    if domain is None or not getattr(domain, "tool_registry", None):
+        return ""
+    tool_names = sorted(name for name in domain.tool_registry if name != "report_completion")
+    if not tool_names:
+        return ""
+    tool_list = ", ".join(tool_names)
+    return (
+        "\nRUNTIME TOOL SURFACE (authoritative for this run): "
+        f"{tool_list}. If a capability is not expressible with these tools, it is UNSUPPORTED. "
+        "Do not assume hidden tools from previous runs, examples, or file content."
+    )
+
+
+def decide_strategy(classification: TaskClassification, domain=None) -> ExecutionStrategy:
     """Select execution strategy based on task classification."""
     # Reload prompts fresh each call so A-Evolve workspace mutations take effect
     base_prompt = _load("prompts/system.md")
@@ -106,13 +125,12 @@ def decide_strategy(classification: TaskClassification) -> ExecutionStrategy:
         hints_str = ", ".join(classification.target_hints)
         target_section = f"\nTarget references from task: {hints_str}. Prioritize these."
 
-    prompt = (
-        f"{base_prompt}{addon}{outcomes_addon}{reasoning_addon}"
-        f"{target_section}{security_section}{hint_section}"
-    )
+    static_prompt = f"{base_prompt}{addon}{outcomes_addon}{reasoning_addon}{security_section}"
+    dynamic_prompt = f"{target_section}{_runtime_tool_surface(domain)}{hint_section}"
 
     return ExecutionStrategy(
-        system_prompt=prompt,
+        system_prompt_static=static_prompt,
+        system_prompt_dynamic=dynamic_prompt,
         max_steps=max_steps,
         security_posture=security_posture,
         pre_submit_verification=pre_submit,

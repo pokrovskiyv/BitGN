@@ -71,7 +71,7 @@ def run_agent_loop(
 
     task_warnings = scan_content(task_text)
     classification = classify_task(task_text, task_warnings)
-    strategy = decide_strategy(classification)
+    strategy = decide_strategy(classification, domain=domain)
 
     print(
         f"{CLI_BLUE}CLASSIFY{CLI_CLR}: {classification.task_type} "
@@ -118,7 +118,13 @@ def run_agent_loop(
                 retry_msgs = messages
                 if attempt > 0:
                     retry_msgs = messages + [{"role": "user", "content": _FMT_CORRECTION}]
-                job = call_llm(strategy.system_prompt, "", retry_msgs, model, nextstep_type)
+                job = call_llm(
+                    strategy.system_prompt_static,
+                    strategy.system_prompt_dynamic,
+                    retry_msgs,
+                    model,
+                    nextstep_type,
+                )
                 break
             except Exception as exc:
                 print(f"LLM parse error (attempt {attempt + 1}/3): {exc}")
@@ -245,7 +251,12 @@ def run_agent_loop(
                     if m["role"] == "user" and "[FILE DATA" in m.get("content", "")
                 ]
                 verdict = get_second_opinion(
-                    task_text, outcome, cmd.message, recent_evidence, model
+                    task_text,
+                    outcome,
+                    cmd.message,
+                    recent_evidence,
+                    tuple(sorted(domain.tool_registry)),
+                    model,
                 )
                 second_opinion_done = True
                 verifier_data = {
@@ -278,9 +289,11 @@ def run_agent_loop(
 
         # ── DISPATCH ──────────────────────────────────────────────
         dispatch_started = time.time()
+        result = None
         try:
             result = domain.dispatch(client, cmd)
             txt = domain.format_result(cmd, result)
+            txt = domain.expand_search_result(client, cmd, result, txt)
             tool_call_count += 1
             print(f"{CLI_GREEN}OUT{CLI_CLR}: {txt}")
         except ConnectError as exc:
@@ -334,6 +347,8 @@ def run_agent_loop(
                 tracker.record_delete(cmd.path)
             elif tool_name == "list" and result is not None and hasattr(result, "entries"):
                 tracker.record_list(cmd.path, [e.name for e in result.entries])
+            elif tool_name in {"find", "search"} and result is not None:
+                tracker.record_result_paths(result, default_root=getattr(cmd, "root", "/"))
         elif tool_name == "move" and hasattr(cmd, "to_name"):
             tracker.record_write(cmd.to_name)
 

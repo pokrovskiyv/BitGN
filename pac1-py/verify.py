@@ -9,6 +9,35 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
+def _join_path(directory: str, name: str) -> str:
+    directory = directory.rstrip("/")
+    if not directory:
+        return f"/{name}".replace("//", "/")
+    if directory == "/":
+        return f"/{name}".replace("//", "/")
+    return f"{directory}/{name}".replace("//", "/")
+
+
+def _extract_result_paths(result, *, default_root: str = "/") -> list[str]:
+    """Collect path-like references from structured tool results."""
+    if result is None:
+        return []
+    paths: list[str] = []
+    for attr in ("matches", "entries", "items", "results", "files"):
+        items = getattr(result, attr, None)
+        if not items:
+            continue
+        for item in items:
+            path = getattr(item, "path", "")
+            if path:
+                paths.append(path)
+                continue
+            name = getattr(item, "name", "")
+            if name:
+                paths.append(_join_path(default_root, name))
+    return list(dict.fromkeys(paths))
+
+
 @dataclass
 class WriteTracker:
     """Tracks files written, read, and deleted during a task.
@@ -20,22 +49,38 @@ class WriteTracker:
     _reads: dict[str, int] = field(default_factory=dict)  # path → step
     _deletes: list[str] = field(default_factory=list)
     _lists: dict[str, list[str]] = field(default_factory=dict)  # dir → entry names
+    _consulted: dict[str, int] = field(default_factory=dict)  # ordered extra refs
     _step: int = 0
 
     def record_write(self, path: str) -> None:
         self._step += 1
         self._writes[path] = self._step
+        self._consulted.setdefault(path, self._step)
 
     def record_read(self, path: str) -> None:
         self._step += 1
         self._reads[path] = self._step
+        self._consulted.setdefault(path, self._step)
 
     def record_delete(self, path: str) -> None:
+        self._step += 1
         self._deletes.append(path)
+        self._consulted.setdefault(path, self._step)
 
     def record_list(self, directory: str, entries: list[str]) -> None:
         """Record filenames returned by a list call."""
-        self._lists[directory.rstrip("/")] = list(entries)
+        key = directory.rstrip("/")
+        self._lists[key] = list(entries)
+        self._step += 1
+        self._consulted.setdefault(directory, self._step)
+        for entry in entries:
+            self._consulted.setdefault(_join_path(directory, entry), self._step)
+
+    def record_result_paths(self, result, *, default_root: str = "/") -> None:
+        """Record files surfaced indirectly via search/find/list-like results."""
+        self._step += 1
+        for path in _extract_result_paths(result, default_root=default_root):
+            self._consulted.setdefault(path, self._step)
 
     def unverified_writes(self) -> list[str]:
         """Return paths written but not re-read *after* the write."""
@@ -58,8 +103,10 @@ class WriteTracker:
             self.record_write(cmd.to_name)
 
     def all_consulted_paths(self) -> list[str]:
-        """Return all paths read or written — candidates for grounding_refs."""
-        return list(dict.fromkeys(list(self._reads) + list(self._writes)))
+        """Return all consulted paths — candidates for grounding_refs."""
+        return list(
+            dict.fromkeys(list(self._consulted) + list(self._reads) + list(self._writes))
+        )
 
 
 @dataclass

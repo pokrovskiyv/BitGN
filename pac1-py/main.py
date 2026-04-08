@@ -1,5 +1,4 @@
 import json
-import os
 import re
 import sys
 import textwrap
@@ -22,10 +21,12 @@ from connectrpc.errors import ConnectError
 
 from agent import run_agent
 from llm import LLM_BACKEND
+from second_opinion import VERIFIER_MODEL, get_verifier_usage
+from settings import SETTINGS
 
-BITGN_URL = os.getenv("BENCHMARK_HOST") or "https://api.bitgn.com"
-BENCHMARK_ID = os.getenv("BENCHMARK_ID") or "bitgn/pac1-dev"
-MODEL_ID = os.getenv("MODEL_ID") or "Qwen/Qwen3-235B-A22B-Thinking-2507"
+BITGN_URL = SETTINGS.benchmark_host
+BENCHMARK_ID = SETTINGS.benchmark_id
+MODEL_ID = SETTINGS.primary_model
 
 TASK_CACHE_PATH = Path(__file__).parent.parent / "docs" / "task_cache.json"
 RUN_HISTORY_PATH = Path(__file__).parent.parent / "docs" / "run_history.json"
@@ -118,6 +119,18 @@ def _collect_usage() -> dict | None:
     return None
 
 
+def _collect_verifier_usage() -> dict | None:
+    usage = get_verifier_usage()
+    if not usage["calls"]:
+        return None
+    r_in, r_out, _, _ = next(
+        (v for k, v in _RATES_ANTHROPIC.items() if k in VERIFIER_MODEL),
+        (1, 5, 1.25, 0.1),
+    )
+    cost = (usage["input_tokens"] * r_in + usage["output_tokens"] * r_out) / 1_000_000
+    return {**usage, "cost_usd": round(cost, 4)}
+
+
 def _append_run_history(
     task_data: dict,
     scores: list,
@@ -136,6 +149,7 @@ def _append_run_history(
         "benchmark_task_count": benchmark_task_count,
         "is_partial_run": is_partial_run,
         "model": MODEL_ID,
+        "verifier_model": VERIFIER_MODEL,
         "backend": LLM_BACKEND,
         "score_pct": round(tasks_passed / tasks_total * 100.0, 2),
         "tasks_passed": tasks_passed,
@@ -152,6 +166,9 @@ def _append_run_history(
     usage_record = _collect_usage()
     if usage_record:
         record["api_usage"] = usage_record
+    verifier_usage = _collect_verifier_usage()
+    if verifier_usage:
+        record["verifier_usage"] = verifier_usage
     history = []
     if RUN_HISTORY_PATH.exists():
         try:
@@ -222,6 +239,7 @@ def _generate_eval_report(task_data: dict, scores: list) -> None:
         f"# Eval Report — {ts}",
         "",
         f"**Model:** `{current.get('model', '?')}`  ",
+        f"**Verifier:** `{current.get('verifier_model', '?')}`  ",
         f"**Backend:** `{current.get('backend', '?')}`  ",
         f"**Score:** {current['tasks_passed']}/{current['tasks_total']} "
         f"({current['score_pct']}%)  ",
@@ -234,6 +252,14 @@ def _generate_eval_report(task_data: dict, scores: list) -> None:
             f"**API:** {usage.get('calls', 0)} calls, "
             f"in={usage.get('input_tokens', 0):,} out={usage.get('output_tokens', 0):,}, "
             f"${usage.get('cost_usd', 0):.2f}  "
+        )
+    verifier_usage = current.get("verifier_usage", {})
+    if verifier_usage:
+        lines.append(
+            f"**Verifier API:** {verifier_usage.get('calls', 0)} calls, "
+            f"in={verifier_usage.get('input_tokens', 0):,} "
+            f"out={verifier_usage.get('output_tokens', 0):,}, "
+            f"${verifier_usage.get('cost_usd', 0):.2f}  "
         )
     lines += ["", "## Improvements" if wins else "## Improvements: none", ""]
     for tid in wins:
@@ -271,9 +297,12 @@ def _run_single_task(client, benchmark_id: str, task) -> tuple[str, dict] | None
     """Run one task end-to-end. Returns (task_id, data_dict) or None on error."""
     from llm import get_usage_snapshot
 
+    task_client = HarnessServiceClientSync(BITGN_URL)
     tid = task.task_id
     print(f"{'=' * 30} Starting task: {tid} {'=' * 30}")
-    trial = client.start_playground(StartPlaygroundRequest(benchmark_id=benchmark_id, task_id=tid))
+    trial = task_client.start_playground(
+        StartPlaygroundRequest(benchmark_id=benchmark_id, task_id=tid)
+    )
     print(f"{CLI_BLUE}{trial.instruction}{CLI_CLR}\n{'-' * 80}")
     usage_before = get_usage_snapshot()
     agent_result = None
@@ -282,7 +311,7 @@ def _run_single_task(client, benchmark_id: str, task) -> tuple[str, dict] | None
     except Exception as exc:
         print(exc)
     usage_after = get_usage_snapshot()
-    result = client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
+    result = task_client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
     if result.score >= 0:
         prompt_tok = usage_after.get("input_tokens", 0) - usage_before.get("input_tokens", 0)
         compl_tok = usage_after.get("output_tokens", 0) - usage_before.get("output_tokens", 0)
@@ -300,6 +329,7 @@ def _run_single_task(client, benchmark_id: str, task) -> tuple[str, dict] | None
             "score": result.score,
             "score_detail": list(result.score_detail),
             "model": MODEL_ID,
+            "verifier_model": VERIFIER_MODEL,
             "timestamp": datetime.now(UTC).isoformat(),
             "metrics": metrics,
         }
@@ -316,7 +346,7 @@ def main() -> None:
 
     args = sys.argv[1:]
     resume = "--resume" in args
-    parallel = 1
+    parallel = SETTINGS.parallel_workers
     task_filter = []
     for a in args:
         if a.startswith("--parallel"):

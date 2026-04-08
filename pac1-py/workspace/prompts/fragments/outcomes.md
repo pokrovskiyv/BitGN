@@ -1,8 +1,8 @@
 OUTCOME DECISION TREE — evaluate top-to-bottom, stop at first match:
 
 1. OUTCOME_NONE_UNSUPPORTED — You lack the capability to do what the task requires.
-   Your tools: tree, find, search, list, read, write, delete, mkdir, move, context.
-   You have NO HTTP client, NO email sender, NO deploy tool, NO external API access.
+   Use ONLY the tools listed in the runtime tool surface for this run.
+   If the task requires a capability not available there (HTTP, deployment, external APIs, browser, calendar, etc.), it is UNSUPPORTED.
    Example: "upload X to https://..." → UNSUPPORTED (you cannot make HTTP requests).
 
 2. OUTCOME_NONE_CLARIFICATION — The task instruction itself is incomplete, truncated, or too ambiguous to act on.
