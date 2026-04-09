@@ -73,6 +73,24 @@ def _task_sort_key(task_id: str) -> tuple[int, str]:
     return (int(m.group(1)), task_id) if m else (10**9, task_id)
 
 
+def _apply_split(tasks: list, split: str) -> list:
+    """Apply train/holdout split — mirror of BitgnBenchmarkAdapter.get_tasks.
+
+    Preserves server-returned task order for consistency with evolve.py.
+    train = first 80%, holdout = last 20% (at least 1 task). "all" = no split.
+    Kept inline (not reused from bitgn_benchmark.py) because that adapter
+    returns agent_evolve Task objects, while main.py works with Protobuf tasks.
+    """
+    if split == "all":
+        return list(tasks)
+    if split not in ("train", "holdout"):
+        raise ValueError(f"Unknown split {split!r}; expected 'all', 'train', or 'holdout'")
+    if not tasks:
+        return []
+    n_holdout = max(1, int(len(tasks) * 0.2))
+    return list(tasks[-n_holdout:]) if split == "holdout" else list(tasks[:-n_holdout])
+
+
 def _save_task_cache(entry: dict) -> None:
     existing = {}
     if TASK_CACHE_PATH.exists():
@@ -155,6 +173,8 @@ def _append_run_history(
     benchmark_id: str,
     benchmark_task_count: int,
     is_partial_run: bool,
+    split: str,
+    split_task_count: int,
 ) -> None:
     if not scores:
         return
@@ -165,6 +185,8 @@ def _append_run_history(
         "timestamp": datetime.now(UTC).isoformat(),
         "benchmark_id": benchmark_id,
         "benchmark_task_count": benchmark_task_count,
+        "split": split,
+        "split_task_count": split_task_count,
         "is_partial_run": is_partial_run,
         "model": MODEL_ID,
         "verifier_model": VERIFIER_MODEL,
@@ -230,7 +252,17 @@ def _generate_eval_report(task_data: dict, scores: list) -> None:
         return  # need at least 2 runs to compare
 
     current = history[-1]
-    previous = history[-2]
+    current_split = current.get("split", "all")
+    # Compare against the most recent previous run with the SAME split.
+    # Otherwise a train-split run would diff against a full run and produce
+    # a misleading -20pp delta from tasks that simply aren't in the split.
+    previous = None
+    for record in reversed(history[:-1]):
+        if record.get("split", "all") == current_split:
+            previous = record
+            break
+    if previous is None:
+        return  # no comparable previous run for this split
     cur_tasks = current.get("tasks", {})
     prev_tasks = previous.get("tasks", {})
     wins, losses, stable_pass, stable_fail = [], [], [], []
@@ -256,13 +288,16 @@ def _generate_eval_report(task_data: dict, scores: list) -> None:
     lines = [
         f"# Eval Report — {ts}",
         "",
+        f"**Split:** `{current_split}` "
+        f"({current.get('split_task_count', current['tasks_total'])} tasks)  ",
         f"**Model:** `{current.get('model', '?')}`  ",
         f"**Verifier:** `{current.get('verifier_model', '?')}`  ",
         f"**Backend:** `{current.get('backend', '?')}`  ",
         f"**Score:** {current['tasks_passed']}/{current['tasks_total']} "
         f"({current['score_pct']}%)  ",
         f"**Previous:** {previous['tasks_passed']}/{previous['tasks_total']} "
-        f"({previous['score_pct']}%)  ",
+        f"({previous['score_pct']}%) "
+        f"[split=`{previous.get('split', 'all')}`]  ",
         f"**Delta:** {current['score_pct'] - previous['score_pct']:+.1f}pp  ",
     ]
     if usage:
@@ -365,12 +400,18 @@ def main() -> None:
     args = sys.argv[1:]
     resume = "--resume" in args
     parallel = SETTINGS.parallel_workers
+    split = "all"
     task_filter = []
     for a in args:
         if a.startswith("--parallel"):
             parallel = int(a.split("=")[1]) if "=" in a else int(args[args.index(a) + 1])
+        elif a.startswith("--split"):
+            split = a.split("=")[1] if "=" in a else args[args.index(a) + 1]
         elif not a.startswith("--"):
             task_filter.append(a)
+    if split not in ("all", "train", "holdout"):
+        print(f"{CLI_RED}Unknown --split={split!r}; expected all|train|holdout{CLI_CLR}")
+        sys.exit(2)
 
     if resume:
         scores, task_data = _load_progress()
@@ -392,9 +433,26 @@ def main() -> None:
         )
 
         benchmark_task_count = len(res.tasks)
+        split_tasks = _apply_split(list(res.tasks), split)
+        split_task_count = len(split_tasks)
+        if split != "all":
+            split_ids = sorted((t.task_id for t in split_tasks), key=_task_sort_key)
+            print(
+                f"{CLI_BLUE}Split: {split!r} — "
+                f"{split_task_count}/{benchmark_task_count} tasks "
+                f"[{', '.join(split_ids)}]{CLI_CLR}"
+            )
+        if task_filter:
+            split_id_set = {t.task_id for t in split_tasks}
+            unknown_in_split = [tf for tf in task_filter if tf not in split_id_set]
+            if unknown_in_split:
+                print(
+                    f"{CLI_RED}WARNING: task filter contains ids not in "
+                    f"{split!r} split: {unknown_in_split}{CLI_CLR}"
+                )
         pending = [
             t
-            for t in res.tasks
+            for t in split_tasks
             if t.task_id not in completed and (not task_filter or t.task_id in task_filter)
         ]
 
@@ -430,13 +488,15 @@ def main() -> None:
         print(f"{CLI_RED}Interrupted — progress saved, use --resume to continue{CLI_CLR}")
 
     if task_data:
-        is_partial_run = bool(task_filter) or len(task_data) < benchmark_task_count
+        is_partial_run = bool(task_filter) or len(task_data) < split_task_count
         _append_run_history(
             task_data,
             scores,
             benchmark_id=res.benchmark_id,
             benchmark_task_count=benchmark_task_count,
             is_partial_run=is_partial_run,
+            split=split,
+            split_task_count=split_task_count,
         )
         _generate_eval_report(task_data, scores)
         PROGRESS_PATH.unlink(missing_ok=True)

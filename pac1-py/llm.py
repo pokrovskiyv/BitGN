@@ -2,7 +2,9 @@
 
 import json
 import os
+import random
 import re
+import time
 
 from pydantic import BaseModel, ValidationError
 from settings import SETTINGS
@@ -229,10 +231,27 @@ def _call_api(
     )
     if "haiku" not in model:
         kwargs["thinking"] = {"type": "adaptive"}
-    try:
-        resp = _call_api._client.messages.parse(**kwargs)
-    except anthropic.APIError as exc:
-        raise RuntimeError(f"Anthropic API error: {exc}") from exc
+    # Retry on 429/5xx with exponential backoff: 1s, 2s, 4s (+ jitter).
+    # A single transient error must not drop a task on a 100-task overnight run.
+    resp = None
+    last_status_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            resp = _call_api._client.messages.parse(**kwargs)
+            break
+        except anthropic.APIStatusError as exc:
+            status = getattr(exc, "status_code", None)
+            if (status == 429 or (status is not None and status >= 500)) and attempt < 2:
+                last_status_exc = exc
+                time.sleep((2**attempt) + random.random())
+                continue
+            raise RuntimeError(f"Anthropic API error: {exc}") from exc
+        except anthropic.APIError as exc:
+            raise RuntimeError(f"Anthropic API error: {exc}") from exc
+    if resp is None:
+        raise RuntimeError(
+            f"Anthropic API error after 3 attempts: {last_status_exc}"
+        ) from last_status_exc
     _api_usage["input_tokens"] += resp.usage.input_tokens
     _api_usage["output_tokens"] += resp.usage.output_tokens
     _api_usage["cache_creation_input_tokens"] += (

@@ -5,6 +5,8 @@ agent chose the correct outcome before report_completion is dispatched.
 Uses a dedicated Anthropic client independent of the main agent's LLM backend.
 """
 
+import random
+import time
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -89,14 +91,34 @@ def get_second_opinion(
     )
 
     try:
+        import anthropic
+
         client = _get_client()
-        resp = client.messages.parse(
+        parse_kwargs = dict(
             model=VERIFIER_MODEL,
             max_tokens=1024,
             system=[{"type": "text", "text": verifier_prompt}],
             messages=[{"role": "user", "content": user_content}],
             output_format=VerifierVerdict,
         )
+        # Retry on 429/5xx with exponential backoff: 1s, 2s, 4s (+ jitter).
+        resp = None
+        last_status_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                resp = client.messages.parse(**parse_kwargs)
+                break
+            except anthropic.APIStatusError as exc:
+                status = getattr(exc, "status_code", None)
+                if (status == 429 or (status is not None and status >= 500)) and attempt < 2:
+                    last_status_exc = exc
+                    time.sleep((2**attempt) + random.random())
+                    continue
+                raise
+        if resp is None:
+            return VerifierVerdict(
+                agree=True, reasoning=f"verifier retries exhausted ({last_status_exc})"
+            )
         _usage["input_tokens"] += getattr(resp.usage, "input_tokens", 0) or 0
         _usage["output_tokens"] += getattr(resp.usage, "output_tokens", 0) or 0
         _usage["calls"] += 1

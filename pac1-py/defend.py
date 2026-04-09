@@ -120,6 +120,11 @@ THREAT_PATTERNS: list[tuple[str, str]] = [
         "direct_override",
         r"if\s+\S.{0,40}=>\s*(remove|delete|send|write|execute|forward|exfiltrat)",
     ),
+    # Conditional "if you ... then Y" natural-language variant (complements if-arrow pattern above)
+    (
+        "direct_override",
+        r"if\s+you\s+.{0,50}\s+then\s+.{0,30}(remove|delete|send|write|execute|forward|exfiltrat)",
+    ),
 ]
 
 _COMPILED = [(cat, re.compile(pat, re.IGNORECASE)) for cat, pat in THREAT_PATTERNS]
