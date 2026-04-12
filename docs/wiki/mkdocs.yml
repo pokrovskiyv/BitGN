@@ -1,0 +1,80 @@
+site_name: "BitGN — Code Wiki"
+site_description: "Автоматически сгенерированная документация BitGN-pac1 и sandbox-py"
+docs_dir: "."
+theme:
+  name: material
+  language: ru
+  palette:
+    scheme: default
+    primary: blue
+  features:
+    - search.suggest
+    - search.highlight
+    - navigation.sections
+    - navigation.expand
+nav:
+  - Главная: index.md
+  - Code Wiki: code-index.md
+  - Архитектура:
+      - Обзор: architecture/overview.md
+      - PCDRED-пайплайн: architecture/pcdred-pipeline.md
+      - Domain Plugin Architecture: architecture/domain-plugin-architecture.md
+      - LLM-бэкенды: architecture/llm-backends.md
+      - Agent Team: architecture/agent-team.md
+      - A-Evolve Integration: architecture/a-evolve-integration.md
+      - Модель безопасности: architecture/security-model.md
+      - Knowledge Wiki: architecture/knowledge-wiki.md
+  - Концепции:
+      - PCDRED: concepts/pcdred.md
+      - Prompt injection: concepts/threat-injection.md
+      - Классификация задач: concepts/task-classification.md
+      - Уровни риска: concepts/risk-levels.md
+      - Детекция стагнации: concepts/stagnation-detection.md
+      - Read-after-write: concepts/read-after-write.md
+      - Коды исходов: concepts/outcome-codes.md
+      - Иерархия инструкций: concepts/instruction-hierarchy.md
+      - Scoring: concepts/scoring.md
+  - Модули pac1-py:
+      - agent: modules/pac1-py/agent.md
+      - agent_loop: modules/pac1-py/agent_loop.md
+      - domain_protocol: modules/pac1-py/domain_protocol.md
+      - domain_fs: modules/pac1-py/domain_fs.md
+      - classify: modules/pac1-py/classify.md
+      - strategy: modules/pac1-py/strategy.md
+      - llm: modules/pac1-py/llm.md
+      - defend: modules/pac1-py/defend.md
+      - verify: modules/pac1-py/verify.md
+      - environment: modules/pac1-py/environment.md
+      - output_contract: modules/pac1-py/output_contract.md
+      - criteria: modules/pac1-py/criteria.md
+      - hints: modules/pac1-py/hints.md
+      - second_opinion: modules/pac1-py/second_opinion.md
+      - main: modules/pac1-py/main.md
+      - settings: modules/pac1-py/settings.md
+      - bitgn_client: modules/pac1-py/bitgn_client.md
+      - bitgn_agent: modules/pac1-py/bitgn_agent.md
+      - bitgn_benchmark: modules/pac1-py/bitgn_benchmark.md
+      - evolve: modules/pac1-py/evolve.md
+      - sample_tasks: modules/pac1-py/sample_tasks.md
+      - synthetic_gauntlet: modules/pac1-py/synthetic_gauntlet.md
+  - Модули sandbox-py:
+      - agent: modules/sandbox-py/agent.md
+      - main: modules/sandbox-py/main.md
+  - Спецификации:
+      - PCDRED Meta-Model: specs/pcdred-meta-model.md
+      - Domain Plugin: specs/domain-plugin.md
+      - Dashboard Redesign: specs/dashboard-redesign.md
+      - Variance-Reducer: specs/variance-reducer.md
+      - SoTA Analysis: specs/sota-analysis.md
+      - Handbook: specs/handbook.md
+  - Источники:
+      - Индекс: raw/_index.md
+  - Глоссарий: glossary.md
+plugins:
+  - search
+markdown_extensions:
+  - toc:
+      permalink: true
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences

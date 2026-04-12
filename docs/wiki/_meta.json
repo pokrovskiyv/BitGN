@@ -1,0 +1,15 @@
+{
+  "compiled_at": "2026-04-12T12:05:18.892968+00:00",
+  "run_count": 161,
+  "complete_run_count": 89,
+  "task_count": 147,
+  "report_counts": {
+    "cycles": 23,
+    "eval": 71,
+    "redteam": 28,
+    "optimization": 26
+  },
+  "source_hashes": {
+    "run_history.json": "a3ac2897b8387d2d"
+  }
+}
