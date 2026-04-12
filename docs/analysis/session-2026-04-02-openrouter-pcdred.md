@@ -105,8 +105,51 @@ All kept changes are GREEN zone infrastructure fixes. No AMBER zone edits surviv
 |---------|------|-------------|--------------|------|
 | OpenRouter (qwen3.6-plus:free) | 8 | ~12.9M | ~1.25M | **$0.00** |
 | Nebius (Qwen3-235B-Thinking) | 7 | ~8.1M | ~1.7M | **$3.01** |
-| Opus orchestrator (est.) | ~10 cycles | — | — | **~$5-8** |
-| **Total** | **15 benchmark runs** | **~21M** | **~3M** | **~$8-11** |
+| Opus orchestrator (CLI subscription) | ~10 cycles | — | — | **$0** (included in plan) |
+| **Total** | **15 benchmark runs** | **~21M** | **~3M** | **$3.01** |
+
+---
+
+---
+
+## Phase 5: Controlled Comparison — Same Commit, Two Backends (2026-04-03)
+
+All runs on commit `d8383e0` (includes all PCDRED fixes: fallback parser, budget exhaustion, risk_level wiring, pre_completion_gate, inbox gate).
+
+### Nebius / Qwen3-235B-A22B-Thinking-2507 (8 parallel workers)
+
+| Run | Score | Tasks | Cost |
+|-----|-------|-------|------|
+| 1 | **80.65%** | 25/31 | $0.43 |
+| 2 | **77.42%** | 24/31 | $0.44 |
+| 3 | **77.42%** | 24/31 | $0.50 |
+| **Mean** | **78.5%** | — | **$1.37** |
+
+Variance: ±1.9pp (stable). Best-ever score: 80.65%.
+
+### OpenRouter / qwen/qwen3.6-plus:free (5 parallel workers)
+
+| Run | Score | Tasks | Cost |
+|-----|-------|-------|------|
+| 1 | **54.84%** | 17/31 | $0.00 |
+| 2 | **67.74%** | 21/31 | $0.00 |
+| 3 | **58.06%** | 18/31 | $0.00 |
+| **Mean** | **60.2%** | — | **$0.00** |
+
+Variance: ±6.5pp (high). Free tier instability visible even at 5 workers.
+
+### Head-to-Head Summary
+
+| Metric | Nebius (Qwen3-235B) | OpenRouter (Qwen 3.6 Plus free) |
+|--------|--------------------|---------------------------------|
+| Mean score | **78.5%** | 60.2% |
+| Best score | **80.65%** | 67.74% |
+| Variance | ±1.9pp | ±6.5pp |
+| Cost (3 runs) | $1.37 | **$0.00** |
+| json_schema | ✅ enforced | ❌ json_object + fallback |
+| Reasoning | Thinking model (CoT in reasoning_content) | Always-on CoT (effort=high) |
+
+Delta: **18.3pp** in favor of Nebius/Qwen3-235B-Thinking.
 
 ---
 

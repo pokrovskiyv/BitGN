@@ -12,6 +12,8 @@ from agent_evolve.types import Feedback, Task, Trajectory
 from bitgn.harness_connect import HarnessServiceClientSync
 from bitgn.harness_pb2 import GetBenchmarkRequest
 
+from bitgn_client import make_harness_client
+
 
 class BitgnBenchmarkAdapter(BenchmarkAdapter):
     """Adapter for the BitGN PAC1 development benchmark."""
@@ -23,7 +25,7 @@ class BitgnBenchmarkAdapter(BenchmarkAdapter):
     ) -> None:
         self._benchmark_id = benchmark_id or os.getenv("BENCHMARK_ID", "bitgn/pac1-dev")
         self._host = host or os.getenv("BENCHMARK_HOST", "https://api.bitgn.com")
-        self._client = HarnessServiceClientSync(self._host)
+        self._client = make_harness_client(self._host)
 
     @property
     def benchmark_id(self) -> str:

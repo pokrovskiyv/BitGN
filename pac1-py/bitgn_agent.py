@@ -15,10 +15,10 @@ from pathlib import Path
 
 from agent_evolve.protocol.base_agent import BaseAgent
 from agent_evolve.types import Task, Trajectory
-from bitgn.harness_connect import HarnessServiceClientSync
 from bitgn.harness_pb2 import EndTrialRequest, StartPlaygroundRequest
 
 from agent import run_agent
+from bitgn_client import make_harness_client
 from settings import SETTINGS
 
 
@@ -36,7 +36,7 @@ class BitgnAgent(BaseAgent):
         self._benchmark_id = benchmark_id or SETTINGS.benchmark_id
         self._host = host or SETTINGS.benchmark_host
         self._model = model or SETTINGS.primary_model
-        self._harness_client = HarnessServiceClientSync(self._host)
+        self._harness_client = make_harness_client(self._host)
 
     @staticmethod
     def _build_reflection(instruction: str, score: float, detail: list[str]) -> dict:

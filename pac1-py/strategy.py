@@ -47,12 +47,12 @@ _STRATEGY_TABLE: dict[str, tuple[int, SecurityPosture, bool]] = {
     #                    max_steps  security_posture  pre_submit_verify
     "security_test": (12, "paranoid", False),
     "crud": (15, "standard", True),
-    "crud_delete": (20, "hardened", True),
-    "search": (20, "standard", True),
+    "crud_delete": (22, "hardened", True),
+    "search": (30, "standard", True),
     "communication": (25, "standard", True),
-    "analysis": (25, "standard", True),
-    "inbox_processing": (32, "hardened", True),
-    "multi_step": (30, "standard", True),
+    "analysis": (28, "standard", True),
+    "inbox_processing": (40, "hardened", True),
+    "multi_step": (32, "standard", True),
 }
 
 

@@ -21,13 +21,20 @@ Run benchmark tasks for one of the two agents.
 
 2. Run the benchmark:
    - If task filter provided: `cd <agent-dir> && make task TASKS='<tasks>'`
-   - If no filter: `cd <agent-dir> && make run`
+   - If no filter and agent is `pac1`: prefer `cd pac1-py && uv run python main.py --parallel=4`
+   - If no filter and agent is `sandbox`: `cd sandbox-py && make run`
 
 3. After the run completes:
-   - Read the terminal output and summarize: total tasks, pass/fail count, score
+   - Read the latest `docs/eval/run-*.md` if it exists and use it as the source of truth
+   - Summarize: task count, pass/fail count, score, and benchmark size
    - If `docs/run_history.json` was updated, note the new entry
-   - Highlight any regressions (tasks that previously passed but now failed)
-   - Highlight any improvements (tasks that previously failed but now passed)
+   - Highlight regressions (tasks that previously passed but now failed)
+   - Highlight improvements (tasks that previously failed but now passed)
+   - Flag whether this run introduced new task IDs or a changed task count
 
 4. If any tasks failed, briefly categorize failures:
-   - Wrong answer vs security false positive vs timeout vs tool error
+   - Wrong answer / precision
+   - Security false positive
+   - Security miss
+   - Missing side effect or refs
+   - Timeout / parse / infra issue

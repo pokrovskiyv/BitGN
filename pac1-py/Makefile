@@ -1,4 +1,4 @@
-.PHONY: sync run run-final run-parallel run-train run-holdout run-final-train run-final-holdout resume resume-final task task-final narrate wiki run-full
+.PHONY: sync run run-final run-parallel run-train run-holdout run-final-train run-final-holdout resume resume-final task task-final gauntlet gauntlet-strict narrate wiki run-full
 
 PARALLEL ?= 4
 
@@ -48,6 +48,12 @@ task-final:
 	@if [ -z "$(TASKS)" ]; then echo "usage: make task-final TASKS='t01 t03'"; exit 1; fi
 	RUN_PROFILE=final VERIFIER_POLICY=adaptive PARALLEL=$(PARALLEL) \
 		uv run python main.py $(TASKS)
+
+gauntlet:
+	UV_CACHE_DIR=$(CURDIR)/../.uv-cache uv run python synthetic_gauntlet.py
+
+gauntlet-strict:
+	UV_CACHE_DIR=$(CURDIR)/../.uv-cache uv run python synthetic_gauntlet.py --strict
 
 narrate:
 	cd .. && claude --model claude-sonnet-4-6 --permission-mode acceptEdits --max-turns 15 \

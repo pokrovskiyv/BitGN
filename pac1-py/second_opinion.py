@@ -6,6 +6,7 @@ Uses a dedicated Anthropic client independent of the main agent's LLM backend.
 """
 
 import random
+import re
 import time
 from pathlib import Path
 
@@ -46,7 +47,14 @@ def _load_verifier_prompt() -> str:
     return path.read_text() if path.exists() else ""
 
 
-def needs_second_opinion(classification: TaskClassification, outcome: str) -> bool:
+_INBOXISH_RE = re.compile(r"\b(inbox|queue|pending\s+items|incoming\s+queue)\b", re.IGNORECASE)
+
+
+def needs_second_opinion(
+    classification: TaskClassification,
+    outcome: str,
+    task_text: str,
+) -> bool:
     """Decide whether to spawn a verifier agent for this completion."""
     if VERIFIER_POLICY == "off":
         return False
@@ -60,6 +68,8 @@ def needs_second_opinion(classification: TaskClassification, outcome: str) -> bo
     if classification.requires_delete:
         return True
     if classification.task_type in {"communication", "inbox_processing", "multi_step"}:
+        return True
+    if _INBOXISH_RE.search(task_text):
         return True
     return False
 

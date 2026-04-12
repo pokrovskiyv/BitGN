@@ -171,7 +171,10 @@ def _call_openai_compat(
             f"  \x1b[90m[think: {reasoning[:120]}{'...' if len(reasoning) > 120 else ''}]\x1b[0m"
         )
 
-    raw = _extract_json(choice.message.content or "")
+    content = choice.message.content or ""
+    if not content.strip():
+        raise RuntimeError("empty model response body")
+    raw = _extract_json(content)
     try:
         return nextstep_type.model_validate_json(raw)
     except ValidationError:

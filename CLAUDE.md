@@ -36,7 +36,8 @@ There are no test frameworks, linters, or CI pipelines in this repo. Testing is 
 | `MODEL_ID` | `Qwen/Qwen3-235B-A22B-Thinking-2507` | Model ID for the active backend |
 | `NEBIUS_API_KEY` | — | Required when `LLM_BACKEND=nebius` |
 | `BENCHMARK_HOST` | `https://api.bitgn.com` | BitGN API endpoint |
-| `BENCHMARK_ID` | `bitgn/pac1-dev` (pac1 only) | Benchmark to run |
+| `BENCHMARK_ID` | `bitgn/pac1-dev` (dev); `bitgn/pac1-prod` (competition, blind mode) | Benchmark to run |
+| `BITGN_API_KEY` | — | Required for `bitgn/pac1-prod` and any authenticated endpoint. Get from https://bitgn.com/me/api-keys. Attached by `bitgn_client.make_harness_client()` as `Authorization: Bearer <key>`. |
 | `HINT` | empty | Extra text appended to pac1 system prompt |
 | `ANTHROPIC_API_KEY` | — | Required when `LLM_BACKEND=api` |
 | `EVOLVER_MODEL` | `claude-opus-4-5` | LLM used by A-Evolve for workspace mutations |
@@ -65,6 +66,7 @@ pac1-py/
 ├── verify.py          # StagnationDetector (+ oscillation detection), WriteTracker, action_gate_message()
 ├── environment.py     # EnvironmentModel + extract_environment() — dynamic AGENTS.md parsing
 ├── main.py            # Entry point
+├── bitgn_client.py    # Auth-aware client factories (make_harness_client, make_vm_client) — attaches BITGN_API_KEY
 ├── bitgn_agent.py     # A-Evolve BaseAgent wrapper (solve() → BitGN trial)
 ├── bitgn_benchmark.py # A-Evolve BenchmarkAdapter (get_tasks(), evaluate())
 ├── evolve.py          # A-Evolve runner CLI (--cycles, --batch-size, --dry-run)
@@ -153,7 +155,11 @@ Each task yields 0–1.0 points. Evaluated on: instruction accuracy, threat inje
 
 ## Knowledge Wiki
 
-`compile_wiki.py` at repo root compiles `docs/wiki/` from raw data sources (run_history.json, task_cache.json, PCDRED reports). No LLM calls — pure Python aggregation, runs in <1s. The wiki is gitignored (generated output).
+`docs/wiki/` hosts **two co-owned documentation systems** sharing disjoint file paths. Both are gitignored (generated output).
+
+### 1. Python-compiled wiki (runtime data)
+
+`compile_wiki.py` at repo root compiles runtime snapshots from raw data sources (run_history.json, task_cache.json, PCDRED reports). No LLM calls — pure Python aggregation, runs in <1s.
 
 ```
 docs/wiki/
@@ -167,6 +173,38 @@ docs/wiki/
 ```
 
 Every PCDRED cycle starts with `python3 compile_wiki.py` (step 0 in the cycle prompt). Agents read wiki pages instead of scanning 100+ raw reports. The `make run-full` target in pac1-py/ auto-compiles the wiki after benchmark runs.
+
+### 2. LLM-compiled code wiki (architecture, modules, concepts)
+
+`~/.claude/skills/wiki/` skill (invoked via `/wiki init | compile | rebuild | lint | query`) writes semantic documentation to **disjoint subdirectories** of `docs/wiki/` — it never touches files owned by `compile_wiki.py`. Language is **Russian** (`config.language = "ru"`). Filenames and code identifiers stay English.
+
+```
+docs/wiki/
+  code-index.md                # LLM-wiki root (NOT index.md — that belongs to compile_wiki.py)
+  glossary.md                  # Domain terms (Russian prose, English identifiers)
+  modules/pac1-py/*.md         # One article per pac1-py/*.py (22 modules)
+  modules/sandbox-py/*.md      # One article per sandbox-py/*.py (2 modules)
+  architecture/*.md            # overview, pcdred-pipeline, domain-plugin-architecture,
+                               # llm-backends, agent-team, a-evolve-integration,
+                               # security-model, knowledge-wiki
+  concepts/*.md                # pcdred, threat-injection, task-classification,
+                               # risk-levels, stagnation-detection, read-after-write,
+                               # outcome-codes, instruction-hierarchy, scoring
+  specs/*.md                   # Summaries of docs/superpowers/specs/* and handbook
+  decisions/                   # ADRs (currently empty)
+  mkdocs.yml                   # Material-theme nav (RU labels)
+  .state/                      # Scanner state (config.json, manifest.json, backlinks.json)
+```
+
+Coexistence rules:
+
+- `compile_wiki.py` owns the flat level of `docs/wiki/` plus `tasks/`. The `/wiki` skill owns only the subdirectories above, plus `glossary.md` and `code-index.md`.
+- **Never write to `docs/wiki/index.md` from the `/wiki` skill** — that file belongs to `compile_wiki.py`.
+- `compile_wiki.py` uses only `mkdir(exist_ok=True)` + `write_text()`; never deletes subdirectories, so LLM-wiki files survive its rebuilds.
+- `.git/hooks/post-commit` touches `docs/wiki/.state/pending` when source files change outside Claude Code. A `/wiki compile` run clears it.
+- **PreToolUse hook for wiki freshness is intentionally NOT installed** in `.claude/settings.json` to avoid adding another Python script to the existing `pre_run_check.py` pipeline. Post-commit git hook + manual `/wiki compile` provide sufficient freshness detection.
+
+Scanner config (fixed `wiki_dir` is a scanner-hardcoded default, not configurable): `docs/wiki/.state/config.json`. Post-commit hook: `~/.claude/skills/wiki/hooks/post-commit`. Slash command: `.claude/commands/wiki.md`.
 
 ## Documentation
 

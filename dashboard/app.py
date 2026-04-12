@@ -11,7 +11,10 @@ from narratives import OUTCOME_EXPLANATIONS, OUTCOME_LABELS
 from parsers import (
     build_task_lifecycle,
     build_task_table_df,
+    collect_task_ids,
     compute_dashboard_summary,
+    extract_task_metrics_df,
+    is_complete_run,
     load_analysis_reports,
     load_eval_reports,
     load_narrative_reports,
@@ -79,8 +82,9 @@ with bar1:
     st.metric("Счёт", f"{score:.0f}%", delta_str, delta_color="off")
 with bar2:
     passed = latest_eval.tasks_passed if latest_eval else 0
-    remaining = 25 - passed
-    st.metric("Задачи", f"{passed}/25", f"{remaining} осталось")
+    total_tasks = latest_eval.tasks_total if latest_eval and latest_eval.tasks_total > 0 else passed
+    remaining = max(total_tasks - passed, 0)
+    st.metric("Задачи", f"{passed}/{total_tasks}", f"{remaining} осталось" if total_tasks else None)
 with bar3:
     days_left = (COMPETITION_DATE - date.today()).days
     st.metric("До соревнования", f"{days_left} дн.")
@@ -150,7 +154,20 @@ st.divider()
 
 # ── Score Trend Chart ────────────────────────────────────────────────────────
 
-dated_evals = [r for r in evals if len(r.timestamp) == 13]
+# Only show full benchmark runs on the trend chart — partial runs distort the trend.
+current_benchmark_total = max(
+    (
+        r.benchmark_task_count or r.tasks_total
+        for r in run_history
+        if is_complete_run(r)
+    ),
+    default=0,
+)
+dated_evals = [
+    r
+    for r in evals
+    if len(r.timestamp) == 13 and current_benchmark_total > 0 and r.tasks_total == current_benchmark_total
+]
 if dated_evals:
     color_map = {
         "IMPROVED": "#22c55e",
@@ -183,6 +200,40 @@ if dated_evals:
     )
     st.plotly_chart(fig, use_container_width=True)
 
+# ── Section: Run Detail (per-task metrics) ───────────────────────────────────
+
+selected_run = None
+if run_history:
+    st.subheader("Детали прогона")
+    run_options = [
+        f"{r.timestamp[:19]}  —  {r.score_pct:.0f}% ({r.tasks_passed}/{r.tasks_total})  [{r.model.split('/')[-1][:30]}]"
+        for r in reversed(run_history)
+    ]
+    selected_run_label = st.selectbox("Прогон", options=run_options, index=0)
+    selected_run_idx = run_options.index(selected_run_label)
+    selected_run = list(reversed(run_history))[selected_run_idx]
+
+    has_metrics = any(td.get("metrics") for td in selected_run.tasks.values())
+    if has_metrics:
+        metrics_df = extract_task_metrics_df(selected_run)
+
+        def _color_score_col(val: str) -> str:
+            if val == "PASS":
+                return "color: #22c55e"
+            if val == "FAIL":
+                return "color: #ef4444"
+            return "font-weight: bold"
+
+        st.dataframe(
+            metrics_df.style.map(_color_score_col, subset=["Score"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        st.caption("Метрики для этого прогона недоступны (старый формат данных)")
+
+st.divider()
+
 # ── Section B: Task Table ────────────────────────────────────────────────────
 
 st.subheader("Задачи")
@@ -209,18 +260,28 @@ styled_df = df.style.map(_color_delta, subset=["Δ"])
 st.dataframe(styled_df, use_container_width=True, hide_index=True)
 
 # Task selection — default to first failing task
-task_ids = [f"t{i:02d}" for i in range(1, 26)]
-failing_ids = [
-    tid for tid in task_ids if (scores := task_scores_all.get(tid)) and scores[-1] < 1.0
-]
-default_idx = task_ids.index(failing_ids[0]) if failing_ids else None
-
-selected = st.selectbox(
-    "Подробности задачи",
-    options=task_ids,
-    index=default_idx,
-    placeholder="Выбрать задачу...",
+task_ids = collect_task_ids(
+    task_scores_all,
+    latest_eval,
+    task_cache,
+    trace_map,
+    summary.task_deltas,
+    targeted_task,
 )
+selected = None
+if task_ids:
+    failing_ids = [
+        tid for tid in task_ids if (scores := task_scores_all.get(tid)) and scores[-1] < 1.0
+    ]
+    default_idx = task_ids.index(failing_ids[0]) if failing_ids else 0
+    selected = st.selectbox(
+        "Подробности задачи",
+        options=task_ids,
+        index=default_idx,
+        placeholder="Выбрать задачу...",
+    )
+else:
+    st.caption("Список задач пока пуст.")
 
 # ── Section C: Task Detail Panel ─────────────────────────────────────────────
 
@@ -260,7 +321,30 @@ if selected:
         marks = "".join("✓" if s >= 1.0 else "✗" for _, s in lc.score_history)
         st.caption(f"История: {marks} ({lc.stability})")
 
-    if trace and trace.steps:
+    # Per-step detail — prefer stored metrics, fallback to log traces
+    stored_steps = []
+    if selected_run and selected in selected_run.tasks:
+        stored_steps = selected_run.tasks[selected].get("metrics", {}).get("steps", [])
+
+    if stored_steps:
+        with st.expander(
+            f"Итерации: {len(stored_steps)} шагов",
+            expanded=False,
+        ):
+            step_rows = [
+                {
+                    "#": s["step"],
+                    "Инструмент": s.get("tool", ""),
+                    "Аргументы": s.get("args", "")[:50],
+                    "План": s.get("plan", "")[:50],
+                    "Planning": f"{s.get('planning_ms', 0) / 1000:.1f}s",
+                    "Dispatch": f"{s.get('dispatch_ms', 0)}ms",
+                    "Всего": f"{(s.get('planning_ms', 0) + s.get('dispatch_ms', 0)) / 1000:.1f}s",
+                }
+                for s in stored_steps
+            ]
+            st.dataframe(pd.DataFrame(step_rows), use_container_width=True, hide_index=True)
+    elif trace and trace.steps:
         with st.expander(
             f"Трейс: {trace.step_count} шагов, "
             f"{trace.total_time_ms / 1000:.1f}с, "
@@ -277,11 +361,41 @@ if selected:
                 }
                 for s in trace.steps
             ]
-            st.dataframe(
-                pd.DataFrame(rows),
-                use_container_width=True,
-                hide_index=True,
-            )
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    # Raw trace JSON
+    if selected_run and selected in selected_run.tasks:
+        import json
+
+        raw_data = selected_run.tasks[selected]
+        with st.expander("Raw trace", expanded=False):
+            st.code(json.dumps(raw_data, indent=2, ensure_ascii=False), language="json")
+
+    # Comparison with previous run
+    if selected_run and run_history and len(run_history) >= 2:
+        rev = list(reversed(run_history))
+        run_idx = rev.index(selected_run) if selected_run in rev else -1
+        prev_run = rev[run_idx + 1] if 0 <= run_idx < len(rev) - 1 else None
+        if prev_run and selected in prev_run.tasks:
+            prev_td = prev_run.tasks[selected]
+            prev_m = prev_td.get("metrics", {})
+            cur_m = selected_run.tasks.get(selected, {}).get("metrics", {})
+            if prev_m and cur_m:
+                step_delta = cur_m.get("step_count", 0) - prev_m.get("step_count", 0)
+                time_delta = (
+                    cur_m.get("total_time_ms", 0) - prev_m.get("total_time_ms", 0)
+                ) / 1000
+                prev_score = prev_td.get("score", 0)
+                cur_score = selected_run.tasks[selected].get("score", 0)
+                status_change = "нет"
+                if cur_score >= 1 and prev_score < 1:
+                    status_change = "PASS ▲"
+                elif cur_score < 1 and prev_score >= 1:
+                    status_change = "FAIL ▼"
+                st.caption(
+                    f"Δ vs пред. прогон: статус {status_change} · "
+                    f"шаги Δ {step_delta:+d} · время Δ {time_delta:+.1f}s"
+                )
 
     if lc.cycles_targeting:
         latest_cycle = lc.cycles_targeting[-1]

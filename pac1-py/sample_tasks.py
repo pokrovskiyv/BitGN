@@ -55,7 +55,6 @@ if os.getenv("RUN_PROFILE", "").strip().lower() == "final":
     if _final_env.exists():
         load_dotenv(_final_env, override=True)
 
-from bitgn.harness_connect import HarnessServiceClientSync  # noqa: E402
 from bitgn.harness_pb2 import (  # noqa: E402
     EndTrialRequest,
     GetBenchmarkRequest,
@@ -63,6 +62,7 @@ from bitgn.harness_pb2 import (  # noqa: E402
 )
 from connectrpc.errors import ConnectError  # noqa: E402
 
+from bitgn_client import make_harness_client  # noqa: E402
 from settings import SETTINGS  # noqa: E402
 
 
@@ -91,7 +91,7 @@ def _render_live(tasks, host: str, benchmark_id: str, limit: int) -> list[str]:
     for idx, t in enumerate(sliced, 1):
         tid = getattr(t, "task_id", f"<unknown-{idx}>")
         try:
-            task_client = HarnessServiceClientSync(host)
+            task_client = make_harness_client(host)
             trial = task_client.start_playground(
                 StartPlaygroundRequest(benchmark_id=benchmark_id, task_id=tid)
             )
@@ -157,7 +157,7 @@ def main() -> int:
     ]
 
     try:
-        client = HarnessServiceClientSync(SETTINGS.benchmark_host)
+        client = make_harness_client(SETTINGS.benchmark_host)
         res = client.get_benchmark(GetBenchmarkRequest(benchmark_id=SETTINGS.benchmark_id))
     except ConnectError as exc:
         print(f"ERROR: get_benchmark failed: {exc.code} {exc.message}", file=sys.stderr)

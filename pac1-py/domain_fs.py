@@ -27,6 +27,7 @@ from bitgn.vm.pcm_pb2 import (
 from google.protobuf.json_format import MessageToDict
 from pydantic import BaseModel, Field
 
+from bitgn_client import make_vm_client
 from defend import scan_content, wrap_tool_output
 from domain_protocol import LoopMode, ToolHandler
 
@@ -254,10 +255,26 @@ def _exec_read(vm, cmd):
     )
 
 
+def _sanitize_yaml_frontmatter(content: str) -> str:
+    """Fix single-quoted YAML values containing colons (e.g. subject: 'Re: ...')."""
+    import re
+
+    if not content.startswith("---"):
+        return content
+    end = content.find("\n---", 3)
+    if end < 0:
+        return content
+    fm = content[: end + 4]
+    # Replace subject: 'value with colon' → subject: "value with colon"
+    fm = re.sub(r"""(subject:\s*)'([^']*:[^']*)'""", r'\1"\2"', fm)
+    return fm + content[end + 4 :]
+
+
 def _exec_write(vm, cmd):
+    content = _sanitize_yaml_frontmatter(cmd.content)
     return vm.write(
         WriteRequest(
-            path=cmd.path, content=cmd.content, start_line=cmd.start_line, end_line=cmd.end_line
+            path=cmd.path, content=content, start_line=cmd.start_line, end_line=cmd.end_line
         )
     )
 
@@ -336,7 +353,7 @@ class FilesystemDomain:
     loop_mode = LoopMode(kind="batch", max_steps=25)
 
     def create_client(self, harness_url: str) -> PcmRuntimeClientSync:
-        return PcmRuntimeClientSync(harness_url)
+        return make_vm_client(harness_url)
 
     def boot_messages(self, client: PcmRuntimeClientSync) -> list[dict]:
         messages: list[dict] = []

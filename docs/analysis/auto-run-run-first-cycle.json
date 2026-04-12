@@ -1,0 +1,28 @@
+{
+  "report_path": "docs/eval/run-first-cycle.md",
+  "timestamp": "run-first-cycle",
+  "model": "unknown",
+  "backend": "unknown",
+  "score": {
+    "tasks_passed": 0,
+    "tasks_total": 0,
+    "score_pct": 0.0
+  },
+  "previous": {
+    "tasks_passed": 0,
+    "tasks_total": 0,
+    "score_pct": 0.0
+  },
+  "delta": "",
+  "improvements": [],
+  "regressions": [],
+  "still_failing": [],
+  "passing_count": 0,
+  "failing_task_ids": [],
+  "per_task": {},
+  "run_history": {
+    "benchmark_id": "bitgn/pac1-prod",
+    "benchmark_task_count": 104,
+    "is_partial_run": false
+  }
+}

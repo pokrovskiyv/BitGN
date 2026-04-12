@@ -111,6 +111,8 @@ def run_agent_loop(
     outcome_challenged = False  # T1: one-shot evidence challenge
     second_opinion_done = False  # one-shot independent verifier
     completion_gate_count = 0  # pre_completion_gate attempt cap
+    verifier_new_evidence_required = False
+    verifier_consulted_count_at_disagree = 0
     # Stateful HIGH-risk gate (replaces one-shot set). Key = cmd_path; value =
     # GateState snapshot at first gate fire. The retry interlock below inspects
     # threats_since_gate and intervening_calls to reject double-tap bypass.
@@ -141,8 +143,14 @@ def run_agent_loop(
         for attempt in range(3):
             try:
                 retry_msgs = messages
-                if attempt > 0:
+                if attempt == 1:
                     retry_msgs = messages + [{"role": "user", "content": _FMT_CORRECTION}]
+                elif attempt == 2:
+                    # Context truncation: keep first 4 + last 6 messages to
+                    # reduce context pressure that causes empty responses.
+                    if len(messages) > 12:
+                        retry_msgs = messages[:4] + messages[-6:]
+                    retry_msgs = retry_msgs + [{"role": "user", "content": _FMT_CORRECTION}]
                 job = call_llm(
                     strategy.system_prompt_static,
                     strategy.system_prompt_dynamic,
@@ -311,8 +319,29 @@ def run_agent_loop(
                 print(f"{CLI_YELLOW}GATE{CLI_CLR}: {gate_msg}")
                 messages.append({"role": "user", "content": gate_msg})
 
+        if tool_name == "search" and not getattr(cmd, "pattern", "").strip():
+            hold = (
+                "HOLD: `search` requires a non-empty pattern. If you are still exploring, "
+                "use `list` or `tree` first. If you know what text you need, retry with a "
+                "specific non-empty pattern."
+            )
+            print(f"{CLI_YELLOW}HOLD{CLI_CLR}: {hold}")
+            messages.append({"role": "user", "content": hold})
+            continue
+
         # ── PRE-SUBMIT VERIFICATION (before dispatch) ────────────
         if domain.is_completion(cmd):
+            if (
+                verifier_new_evidence_required
+                and len(tracker._consulted) <= verifier_consulted_count_at_disagree
+            ):
+                hold = (
+                    "HOLD: The independent verifier disagreed with your previous outcome. "
+                    "Collect at least one new piece of evidence before completing again."
+                )
+                print(f"{CLI_YELLOW}VERIFIER{CLI_CLR}: {hold}")
+                messages.append({"role": "user", "content": hold})
+                continue
             unverified = tracker.unverified_writes()
             if strategy.pre_submit_verification and unverified:
                 hold = f"HOLD: You wrote to [{', '.join(sorted(unverified))}] but never re-read. Verify first."
@@ -338,6 +367,8 @@ def run_agent_loop(
                     outcome,
                     tool_call_count,
                     classification.task_type,
+                    task_text,
+                    cmd.message,
                     tracker,
                     cumulative_threats,
                     security_posture=strategy.security_posture,
@@ -369,7 +400,9 @@ def run_agent_loop(
                 print(f"{CLI_YELLOW}CHALLENGE{CLI_CLR}: evidence required for {outcome}")
                 continue
             # Second opinion: independent verifier for judgment-heavy outcomes
-            if not second_opinion_done and needs_second_opinion(classification, outcome):
+            if not second_opinion_done and needs_second_opinion(
+                classification, outcome, task_text
+            ):
                 recent_evidence = [
                     m["content"]
                     for m in messages[-12:]
@@ -394,6 +427,8 @@ def run_agent_loop(
                     f"{CLI_YELLOW}VERIFIER{CLI_CLR}: {'AGREE' if verdict.agree else 'DISAGREE'} — {verdict.reasoning[:80]}"
                 )
                 if not verdict.agree:
+                    verifier_new_evidence_required = True
+                    verifier_consulted_count_at_disagree = len(tracker._consulted)
                     suggested_part = (
                         f"Suggested: {verdict.suggested_outcome}. "
                         if verdict.suggested_outcome
@@ -477,6 +512,8 @@ def run_agent_loop(
                 tracker.record_result_paths(result, default_root=getattr(cmd, "root", "/"))
         elif tool_name == "move" and hasattr(cmd, "to_name"):
             tracker.record_write(cmd.to_name)
+        if tool_name == "search" and getattr(cmd, "count_only", False):
+            tracker.record_count_only_search()
 
         if tool_name == "move":
             tool_args = f"{getattr(cmd, 'from_name', '')}->{getattr(cmd, 'to_name', '')}"
@@ -510,6 +547,8 @@ def run_agent_loop(
         if semantic:
             print(f"{CLI_YELLOW}SEMANTIC-STAGNATION{CLI_CLR}: {semantic}")
             txt += f"\n{semantic}"
+        if verifier_new_evidence_required and new_path_count > 0:
+            verifier_new_evidence_required = False
 
         # ── DEFEND: scan tool output + T4 cumulative threat ───────
         content_warnings = scan_content(txt)

@@ -29,7 +29,7 @@ RUN_HISTORY_PATH = DOCS / "run_history.json"
 TASK_CACHE_PATH = DOCS / "task_cache.json"
 SOTA_PATH = DOCS / "sota-analysis.md"
 
-MIN_COMPLETE_RUN_TASKS = 25
+LEGACY_COMPLETE_RUN_THRESHOLD = 25
 
 
 # ── Data Models ────────────────────────────────────────────────────────────
@@ -46,6 +46,9 @@ class RunRecord:
     tasks_total: int
     tasks: dict
     cost_usd: float
+    benchmark_id: str = ""
+    benchmark_task_count: int | None = None
+    is_partial_run: bool = False
 
 
 @dataclass
@@ -160,6 +163,17 @@ def _parse_ts(stem: str) -> tuple[str, datetime]:
     return stem, datetime(2026, 1, 1)
 
 
+def _task_sort_key(task_id: str) -> tuple[int, str]:
+    m = re.search(r"(\d+)$", task_id)
+    return (int(m.group(1)), task_id) if m else (10**9, task_id)
+
+
+def _run_is_complete(run: RunRecord) -> bool:
+    if run.benchmark_task_count:
+        return not run.is_partial_run and run.tasks_total >= run.benchmark_task_count
+    return run.tasks_total >= LEGACY_COMPLETE_RUN_THRESHOLD
+
+
 # ── Parsers ────────────────────────────────────────────────────────────────
 
 
@@ -187,11 +201,14 @@ def load_run_history() -> list[RunRecord]:
                 RunRecord(
                     timestamp=ts,
                     dt=dt,
+                    benchmark_id=entry.get("benchmark_id", ""),
+                    benchmark_task_count=entry.get("benchmark_task_count"),
+                    is_partial_run=bool(entry.get("is_partial_run", False)),
                     model=entry.get("model", "unknown"),
                     backend=entry.get("backend", "cli"),
                     score_pct=float(entry.get("score_pct", 0.0)),
                     tasks_passed=int(entry.get("tasks_passed", 0)),
-                    tasks_total=int(entry.get("tasks_total", 25)),
+                    tasks_total=int(entry.get("tasks_total", len(entry.get("tasks", {})))),
                     tasks=entry.get("tasks", {}),
                     cost_usd=float(api.get("cost_usd", 0.0)),
                 )
@@ -453,7 +470,7 @@ def build_task_card(task_id, runs, cache, cycles, redteams, opts) -> TaskCard:
     instruction = cached.get("instruction", "")
     task_type = _classify_task_type(instruction)
 
-    complete_runs = [r for r in runs if r.tasks_total >= MIN_COMPLETE_RUN_TASKS]
+    complete_runs = [r for r in runs if _run_is_complete(r)]
     scores = []
     per_backend: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     failure_counter: Counter = Counter()
@@ -570,7 +587,7 @@ def build_vuln_catalog(redteams: list[RedTeamReportW]) -> list[VulnEntry]:
 
 def build_scoreboard(runs: list[RunRecord]) -> ScoreboardData:
     """Build score progression from complete runs."""
-    complete = [r for r in runs if r.tasks_total >= MIN_COMPLETE_RUN_TASKS]
+    complete = [r for r in runs if _run_is_complete(r)]
 
     run_tuples = [
         (r.timestamp[:19], r.model, r.backend, r.score_pct, r.tasks_passed, r.tasks_total)
@@ -615,7 +632,7 @@ def compute_health_checks(runs, cycles, evals, redteams, task_cards):
 
     # 2. Dead tasks with no recent cycle
     recent_targets = " ".join(c.target.lower() for c in cycles[-5:])
-    for tid, card in sorted(task_cards.items()):
+    for tid, card in sorted(task_cards.items(), key=lambda item: _task_sort_key(item[0])):
         if card.stability == "DEAD" and card.total_runs >= 3:
             if tid not in recent_targets:
                 alerts.append(HealthAlert("WARN", f"{tid} (0% win rate) — no recent cycle"))
@@ -641,9 +658,9 @@ def compute_health_checks(runs, cycles, evals, redteams, task_cards):
         HealthAlert("PASS", f"Tasks: {len(stable)} STABLE, {len(flaky)} FLAKY, {len(dead)} DEAD")
     )
     if flaky:
-        alerts.append(HealthAlert("INFO", f"FLAKY: {', '.join(sorted(flaky))}"))
+        alerts.append(HealthAlert("INFO", f"FLAKY: {', '.join(sorted(flaky, key=_task_sort_key))}"))
     if dead:
-        alerts.append(HealthAlert("WARN", f"DEAD: {', '.join(sorted(dead))}"))
+        alerts.append(HealthAlert("WARN", f"DEAD: {', '.join(sorted(dead, key=_task_sort_key))}"))
 
     # 6. Report coverage
     alerts.append(
@@ -698,7 +715,7 @@ def render_index(scoreboard, task_cards, alerts, fix_registry) -> str:
         "| Task | Win% | Stability | Last 5 |",
         "|------|------|-----------|--------|",
     ]
-    for tid in sorted(task_cards):
+    for tid in sorted(task_cards, key=_task_sort_key):
         c = task_cards[tid]
         l5 = " ".join(c.last_5) if c.last_5 else "—"
         lines.append(
@@ -902,7 +919,7 @@ def main() -> None:
     for r in runs:
         all_ids.update(r.tasks.keys())
     all_ids.update(cache.keys())
-    all_ids = sorted(all_ids)
+    all_ids = sorted(all_ids, key=_task_sort_key)
 
     # 3. Synthesize
     task_cards = {
@@ -937,7 +954,7 @@ def main() -> None:
     meta = {
         "compiled_at": datetime.now(timezone.utc).isoformat(),
         "run_count": len(runs),
-        "complete_run_count": len([r for r in runs if r.tasks_total >= MIN_COMPLETE_RUN_TASKS]),
+        "complete_run_count": len([r for r in runs if _run_is_complete(r)]),
         "task_count": len(all_ids),
         "report_counts": {
             "cycles": len(cycles),

@@ -26,17 +26,20 @@ if os.getenv("RUN_PROFILE", "").strip().lower() == "final":
     else:
         print("[final-profile] WARNING: no .env.final or .env.final.example found")
 
-from bitgn.harness_connect import HarnessServiceClientSync
 from bitgn.harness_pb2 import (
     EndTrialRequest,
     EvalPolicy,
     GetBenchmarkRequest,
-    StartPlaygroundRequest,
+    RunState,
+    StartRunRequest,
+    StartTrialRequest,
     StatusRequest,
+    SubmitRunRequest,
 )
 from connectrpc.errors import ConnectError
 
 from agent import run_agent
+from bitgn_client import BITGN_API_KEY, make_harness_client
 from llm import LLM_BACKEND
 from second_opinion import VERIFIER_MODEL, get_verifier_usage
 from settings import SETTINGS
@@ -253,12 +256,16 @@ def _generate_eval_report(task_data: dict, scores: list) -> None:
 
     current = history[-1]
     current_split = current.get("split", "all")
+    current_partial = bool(current.get("is_partial_run", False))
     # Compare against the most recent previous run with the SAME split.
     # Otherwise a train-split run would diff against a full run and produce
     # a misleading -20pp delta from tasks that simply aren't in the split.
     previous = None
     for record in reversed(history[:-1]):
-        if record.get("split", "all") == current_split:
+        if (
+            record.get("split", "all") == current_split
+            and bool(record.get("is_partial_run", False)) == current_partial
+        ):
             previous = record
             break
     if previous is None:
@@ -346,16 +353,30 @@ def _generate_eval_report(task_data: dict, scores: list) -> None:
     print(f"{CLI_GREEN}Eval report: {report_path}{CLI_CLR}")
 
 
-def _run_single_task(client, benchmark_id: str, task) -> tuple[str, dict] | None:
-    """Run one task end-to-end. Returns (task_id, data_dict) or None on error."""
+def _run_single_task(
+    client,
+    trial_id: str,
+    allowed_task_ids: set[str] | None,
+    completed: set[str],
+) -> tuple[str, dict] | None:
+    """Start one trial, run the agent, end the trial.
+
+    Skips (returns ``None`` without executing the agent) if the trial's
+    ``task_id`` is not in ``allowed_task_ids`` or is already in ``completed``.
+    Skipped trials are left in RUNNING state — ``SubmitRun(force=True)`` will
+    handle them at the end of the run.
+    """
     from llm import get_usage_snapshot
 
-    task_client = HarnessServiceClientSync(BITGN_URL)
-    tid = task.task_id
+    trial = client.start_trial(StartTrialRequest(trial_id=trial_id))
+    tid = trial.task_id
+
+    if allowed_task_ids is not None and tid not in allowed_task_ids:
+        return None  # not in split/filter — skip
+    if tid in completed:
+        return None  # --resume skip
+
     print(f"{'=' * 30} Starting task: {tid} {'=' * 30}")
-    trial = task_client.start_playground(
-        StartPlaygroundRequest(benchmark_id=benchmark_id, task_id=tid)
-    )
     print(f"{CLI_BLUE}{trial.instruction}{CLI_CLR}\n{'-' * 80}")
     usage_before = get_usage_snapshot()
     agent_result = None
@@ -364,7 +385,7 @@ def _run_single_task(client, benchmark_id: str, task) -> tuple[str, dict] | None
     except Exception as exc:
         print(exc)
     usage_after = get_usage_snapshot()
-    result = task_client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
+    result = client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
     if result.score >= 0:
         prompt_tok = usage_after.get("input_tokens", 0) - usage_before.get("input_tokens", 0)
         compl_tok = usage_after.get("output_tokens", 0) - usage_before.get("output_tokens", 0)
@@ -422,9 +443,13 @@ def main() -> None:
         PROGRESS_PATH.unlink(missing_ok=True)
 
     lock = threading.Lock()
+    run = None
+    benchmark_task_count = 0
+    split_task_count = 0
+    is_partial_run = False
 
     try:
-        client = HarnessServiceClientSync(BITGN_URL)
+        client = make_harness_client(BITGN_URL)
         print("Connecting to BitGN", client.status(StatusRequest()))
         res = client.get_benchmark(GetBenchmarkRequest(benchmark_id=BENCHMARK_ID))
         print(
@@ -450,53 +475,104 @@ def main() -> None:
                     f"{CLI_RED}WARNING: task filter contains ids not in "
                     f"{split!r} split: {unknown_in_split}{CLI_CLR}"
                 )
-        pending = [
-            t
-            for t in split_tasks
-            if t.task_id not in completed and (not task_filter or t.task_id in task_filter)
-        ]
 
-        if parallel <= 1:
-            for task in pending:
-                out = _run_single_task(client, BENCHMARK_ID, task)
-                if out:
-                    tid, data = out
-                    scores.append((tid, data["score"]))
-                    task_data[tid] = data
-                    _save_task_cache({tid: data})
-                    _save_progress(scores, task_data)
+        # Build allowed_task_ids (intersection of split + task_filter).
+        # None means "allow everything" — the competition / full-run case.
+        if split == "all" and not task_filter:
+            allowed_task_ids: set[str] | None = None
         else:
-            print(f"{CLI_BLUE}Parallel mode: {parallel} workers{CLI_CLR}")
-            with ThreadPoolExecutor(max_workers=parallel) as pool:
-                futures = {
-                    pool.submit(_run_single_task, client, BENCHMARK_ID, task): task
-                    for task in pending
-                }
-                for future in as_completed(futures):
-                    out = future.result()
+            split_id_set = {t.task_id for t in split_tasks}
+            if task_filter:
+                allowed_task_ids = split_id_set & set(task_filter)
+            else:
+                allowed_task_ids = split_id_set
+
+        is_partial_run = (
+            allowed_task_ids is not None and len(allowed_task_ids) < benchmark_task_count
+        )
+
+        # StartRun creates the competition session. Works for both open
+        # (pac1-dev) and blind (pac1-prod) benchmarks — upstream unified flow.
+        # api_key goes in the request body, not an HTTP header.
+        run_name = f"pac1-py-{SETTINGS.run_profile}-{datetime.now(UTC).strftime('%Y%m%d-%H%M%S')}"
+        run = client.start_run(
+            StartRunRequest(
+                benchmark_id=BENCHMARK_ID,
+                name=run_name,
+                api_key=BITGN_API_KEY,
+            )
+        )
+        print(
+            f"{CLI_BLUE}Run started: run_id={run.run_id} "
+            f"trials={len(run.trial_ids)} name={run_name!r}{CLI_CLR}"
+        )
+
+        try:
+            if parallel <= 1:
+                for trial_id in run.trial_ids:
+                    try:
+                        out = _run_single_task(client, trial_id, allowed_task_ids, completed)
+                    except Exception as exc:
+                        print(f"{CLI_RED}Task worker failed: {exc}{CLI_CLR}")
+                        continue
                     if out:
                         tid, data = out
-                        with lock:
-                            scores.append((tid, data["score"]))
-                            task_data[tid] = data
-                            _save_task_cache({tid: data})
-                            _save_progress(scores, task_data)
+                        scores.append((tid, data["score"]))
+                        task_data[tid] = data
+                        _save_task_cache({tid: data})
+                        _save_progress(scores, task_data)
+            else:
+                print(f"{CLI_BLUE}Parallel mode: {parallel} workers{CLI_CLR}")
+                with ThreadPoolExecutor(max_workers=parallel) as pool:
+                    futures = {
+                        pool.submit(
+                            _run_single_task, client, trial_id, allowed_task_ids, completed
+                        ): trial_id
+                        for trial_id in run.trial_ids
+                    }
+                    for future in as_completed(futures):
+                        try:
+                            out = future.result()
+                        except Exception as exc:
+                            print(f"{CLI_RED}Task worker failed: {exc}{CLI_CLR}")
+                            continue
+                        if out:
+                            tid, data = out
+                            with lock:
+                                scores.append((tid, data["score"]))
+                                task_data[tid] = data
+                                _save_task_cache({tid: data})
+                                _save_progress(scores, task_data)
+        finally:
+            # Always submit the run — even on partial execution or interrupt.
+            # force=True tells the server to accept whatever trials have ended;
+            # skipped / still-RUNNING trials get scored as 0 or errored.
+            if run is not None:
+                print(f"{CLI_BLUE}Submitting run {run.run_id}...{CLI_CLR}")
+                try:
+                    submit_res = client.submit_run(SubmitRunRequest(run_id=run.run_id, force=True))
+                    print(
+                        f"{CLI_GREEN}Submitted: run_id={run.run_id} "
+                        f"state={RunState.Name(submit_res.state)}{CLI_CLR}"
+                    )
+                except Exception as exc:
+                    print(f"{CLI_RED}submit_run failed: {exc}{CLI_CLR}")
 
     except ConnectError as exc:
         print(f"{exc.code}: {exc.message}")
     except KeyboardInterrupt:
-        print(f"{CLI_RED}Interrupted — progress saved, use --resume to continue{CLI_CLR}")
+        run_info = f" (run_id={run.run_id})" if run is not None else ""
+        print(f"{CLI_RED}Interrupted{run_info} — use --resume to continue{CLI_CLR}")
 
     if task_data:
-        is_partial_run = bool(task_filter) or len(task_data) < split_task_count
         _append_run_history(
             task_data,
             scores,
-            benchmark_id=res.benchmark_id,
+            benchmark_id=BENCHMARK_ID,
             benchmark_task_count=benchmark_task_count,
             is_partial_run=is_partial_run,
             split=split,
-            split_task_count=split_task_count,
+            split_task_count=split_task_count or len(task_data),
         )
         _generate_eval_report(task_data, scores)
         PROGRESS_PATH.unlink(missing_ok=True)

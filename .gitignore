@@ -33,3 +33,7 @@ CLAUDE.local.md
 
 # Generated wiki (rebuilt by compile_wiki.py)
 docs/wiki/
+
+# Third-party tool caches
+.firecrawl/
+.superpowers/

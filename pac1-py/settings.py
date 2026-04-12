@@ -59,8 +59,11 @@ _PROFILE = _PROFILE_DEFAULTS.get(_RUN_PROFILE, _PROFILE_DEFAULTS["dev"])
 
 SETTINGS = RuntimeSettings(
     run_profile=_RUN_PROFILE if _RUN_PROFILE in _PROFILE_DEFAULTS else "dev",
-    benchmark_host=_env_first("BENCHMARK_HOST", default="https://api.bitgn.com"),
-    benchmark_id=_env_first("BENCHMARK_ID", default="bitgn/pac1-dev"),
+    # Upstream sample-agents uses BITGN_HOST/BENCH_ID; we keep the older
+    # BENCHMARK_HOST/BENCHMARK_ID names as fallbacks so existing .env files
+    # and Makefile targets keep working.
+    benchmark_host=_env_first("BITGN_HOST", "BENCHMARK_HOST", default="https://api.bitgn.com"),
+    benchmark_id=_env_first("BENCH_ID", "BENCHMARK_ID", default="bitgn/pac1-dev"),
     llm_backend=_env_first(
         "PRIMARY_LLM_BACKEND",
         "LLM_BACKEND",

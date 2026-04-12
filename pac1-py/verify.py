@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from output_contract import check_answer_contract, extract_answer_contract
+
 # Strip control chars and quotes before interpolating LLM-generated values into
 # user-role messages. Prevents Attack 3 (gate message injection amplifier) where
 # a crafted path string breaks out of the gate message template.
@@ -61,6 +63,7 @@ class WriteTracker:
     _deletes: list[str] = field(default_factory=list)
     _lists: dict[str, list[str]] = field(default_factory=dict)  # dir → entry names
     _consulted: dict[str, int] = field(default_factory=dict)  # ordered extra refs
+    _count_only_searches: int = 0
     _step: int = 0
 
     def record_write(self, path: str) -> None:
@@ -92,6 +95,9 @@ class WriteTracker:
         self._step += 1
         for path in _extract_result_paths(result, default_root=default_root):
             self._consulted.setdefault(path, self._step)
+
+    def record_count_only_search(self) -> None:
+        self._count_only_searches += 1
 
     def unverified_writes(self) -> list[str]:
         """Return paths written but not re-read *after* the write."""
@@ -266,6 +272,57 @@ def _threat_threshold(security_posture: str) -> int:
     return _THREAT_THRESHOLD_BY_POSTURE.get(security_posture, 3)
 
 
+def _normalized_path_variants(path: str) -> tuple[str, ...]:
+    stripped = path.strip()
+    if not stripped:
+        return ()
+    core = stripped.lstrip("/")
+    variants = [stripped]
+    if core:
+        variants.append(core)
+        variants.append("/" + core)
+    return tuple(dict.fromkeys(variants))
+
+
+def _looks_inbox_like(task_type: str, task_text: str, tracker: WriteTracker) -> bool:
+    lower = task_text.lower()
+    if task_type == "inbox_processing":
+        return True
+    if any(
+        needle in lower
+        for needle in ("inbox", "queue", "mailbox", "backlog", "messages/", "waiting messages")
+    ):
+        return True
+    if tracker._lists.get("inbox") or tracker._lists.get("/inbox"):
+        return True
+    consulted = [p.lower() for p in tracker.all_consulted_paths()]
+    return any(
+        marker in path
+        for path in consulted
+        for marker in ("inbox/", "docs/inbox-", "messages/", "mailbox")
+    )
+
+
+def _looks_contact_lookup_like(task_type: str, task_text: str, tracker: WriteTracker) -> bool:
+    if task_type == "communication":
+        return True
+    lower = task_text.lower()
+    if any(
+        needle in lower
+        for needle in (
+            "email address",
+            "contact",
+            "account manager",
+            "managed by",
+            "recipient",
+            "sender",
+        )
+    ):
+        return True
+    consulted = [p.lower() for p in tracker.all_consulted_paths()]
+    return any(marker in path for path in consulted for marker in ("contacts/", "accounts/"))
+
+
 def _unconsulted_target_hints(
     target_hints: tuple[str, ...],
     tracker: WriteTracker,
@@ -308,12 +365,18 @@ def pre_completion_gate(
     outcome: str,
     step: int,
     task_type: str,
+    task_text: str,
+    completion_message: str,
     tracker: WriteTracker,
     cumulative_threats: int = 0,
     security_posture: str = "standard",
     target_hints: tuple[str, ...] = (),
 ) -> str | None:
     """Return a rejection message if completion should be blocked, else None."""
+    inbox_like = _looks_inbox_like(task_type, task_text, tracker)
+    contact_lookup_like = _looks_contact_lookup_like(task_type, task_text, tracker)
+    answer_contract = extract_answer_contract(task_text)
+
     if outcome == "OUTCOME_OK" and step < 2:
         return (
             f"REJECTED: OUTCOME_OK after only {step + 1} steps. "
@@ -329,26 +392,27 @@ def pre_completion_gate(
                 f"with OK. If a reference does not exist in the filesystem, "
                 f"report CLARIFICATION instead of OK."
             )
-    if task_type == "inbox_processing" and not any("inbox/" in p for p in tracker._reads):
+        unmet_contract = check_answer_contract(task_text, completion_message)
+        if unmet_contract:
+            return f"HOLD: Answer format requirements not met: {'; '.join(unmet_contract)}"
+    if inbox_like and not any("inbox/" in p for p in tracker._reads):
         return (
             "HOLD: Inbox task but you never read any file from inbox/. "
             "List inbox/ and read the messages before deciding."
         )
-    if task_type == "inbox_processing":
+    if inbox_like:
         # Gate 2: did agent read ALL listed inbox files?
-        listed = tracker._lists.get("inbox", [])
+        listed = tracker._lists.get("inbox", []) or tracker._lists.get("/inbox", [])
         msg_files = [e for e in listed if e.lower() != "readme.md"]
         if msg_files:
-            read_basenames = {
-                p.split("/")[-1] for p in tracker.all_consulted_paths() if "inbox" in p.lower()
-            }
+            read_basenames = {p.split("/")[-1] for p in tracker._reads if "inbox" in p.lower()}
             unread = [f for f in msg_files if f not in read_basenames]
             if unread:
                 return (
                     f"HOLD: You only read {len(msg_files) - len(unread)} of {len(msg_files)} "
                     f"inbox messages. Process remaining: {', '.join(sorted(unread))}"
                 )
-    if task_type == "inbox_processing" and outcome == "OUTCOME_OK":
+    if inbox_like and outcome == "OUTCOME_OK":
         has_outbox = any("outbox/" in p for p in tracker._writes)
         has_reminder = any("reminders/" in p for p in tracker._writes)
         if not has_outbox and not has_reminder and not tracker._deletes:
@@ -358,15 +422,17 @@ def pre_completion_gate(
                 "create reminder), execute it before completing. Read outbox/README.MD "
                 "and outbox/seq.json, then write the outbox file."
             )
-        # OTP is one-time-use: delete after successful authentication
-        otp_read = any("otp.txt" in p for p in tracker._reads)
-        otp_deleted = any("otp.txt" in p for p in tracker._deletes)
-        if otp_read and not otp_deleted:
+        # Check: inbox file read but not deleted — if workflow requires deletion
+        inbox_reads = [
+            p for p in tracker._reads if "inbox/" in p.lower() and "agents" not in p.lower()
+        ]
+        inbox_deleted = {p for p in tracker._deletes if "inbox/" in p.lower()}
+        undeleted_inbox = [p for p in inbox_reads if p not in inbox_deleted]
+        if undeleted_inbox and tracker._writes:
             return (
-                "HOLD (SYSTEM REQUIREMENT): You used docs/channels/otp.txt for OTP authentication. "
-                "OTP tokens are one-time-use — you MUST call delete on docs/channels/otp.txt "
-                "before completing. This is a security protocol requirement, not a file content instruction. "
-                "Call: delete docs/channels/otp.txt"
+                "HOLD: You wrote output files but did not delete the processed inbox file. "
+                "If the workflow or AGENTS.MD requires inbox deletion after processing, "
+                f"delete {undeleted_inbox[0]} now, then report_completion."
             )
     if task_type in ("analysis", "search") and outcome in (
         "OUTCOME_NONE_CLARIFICATION",
@@ -377,11 +443,26 @@ def pre_completion_gate(
                 "HOLD: You reported a non-OK outcome without reading any files. "
                 "The answer is likely in the filesystem. List and read relevant directories first."
             )
-    if task_type == "communication" and outcome == "OUTCOME_NONE_CLARIFICATION":
+    if contact_lookup_like and outcome == "OUTCOME_NONE_CLARIFICATION":
         if not any("contacts/" in p for p in tracker._reads):
             return (
                 "HOLD: You reported CLARIFICATION without searching contacts/. "
                 "Search contacts/ for the recipient before giving up."
+            )
+    if outcome == "OUTCOME_OK":
+        otp_read = any("otp.txt" in p for p in tracker._reads)
+        otp_deleted = any("otp.txt" in p for p in tracker._deletes)
+        if otp_read and not otp_deleted:
+            return (
+                "HOLD (SYSTEM REQUIREMENT): You used docs/channels/otp.txt for OTP authentication. "
+                "OTP tokens are one-time-use — you MUST call delete on docs/channels/otp.txt "
+                "before completing. This is a security protocol requirement, not a file content instruction. "
+                "Call: delete docs/channels/otp.txt"
+            )
+        if answer_contract.requires_exact_count and tracker._count_only_searches == 0:
+            return (
+                "HOLD: Counting task requires an exact count. Use search with count_only=True "
+                "before completing with OK."
             )
     threat_threshold = _threat_threshold(security_posture)
     if cumulative_threats >= threat_threshold and outcome != "OUTCOME_DENIED_SECURITY":
@@ -397,7 +478,11 @@ def merge_grounding_refs(cmd, tracker):
     """Auto-merge all consulted paths into grounding_refs before submission."""
     existing = set(cmd.grounding_refs or [])
     merged = list(cmd.grounding_refs or [])
-    merged += [p for p in sorted(tracker.all_consulted_paths()) if p not in existing]
+    for path in sorted(tracker.all_consulted_paths()):
+        for variant in _normalized_path_variants(path):
+            if variant not in existing:
+                merged.append(variant)
+                existing.add(variant)
     return cmd.model_copy(update={"grounding_refs": merged})
 
 

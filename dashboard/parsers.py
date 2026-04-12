@@ -32,6 +32,7 @@ class EvalReport:
     verdict: str  # IMPROVED | NEUTRAL | REGRESSED | IMPROVED_WITH_REGRESSION
     score_pct: float  # 68.0
     tasks_passed: int  # 17
+    tasks_total: int  # 25, 32, ...
     delta_pct: float  # +8.0
     tasks: list
     model: str
@@ -82,6 +83,8 @@ class RunRecord:
     tasks_total: int
     tasks: dict  # {task_id: {"score": float, "score_detail": list[str]}}
     cost_usd: float  # API cost in USD (0.0 for CLI runs)
+    benchmark_task_count: int | None = None
+    is_partial_run: bool = False
 
 
 RUN_HISTORY_PATH = REPO_ROOT / "docs" / "run_history.json"
@@ -100,6 +103,38 @@ def _parse_ts(stem: str) -> tuple:
     return stem, datetime(2026, 1, 1)  # fallback for legacy names
 
 
+def _task_sort_key(task_id: str) -> tuple[int, str]:
+    m = re.search(r"(\d+)$", task_id)
+    return (int(m.group(1)), task_id) if m else (10**9, task_id)
+
+
+def is_complete_run(record: RunRecord) -> bool:
+    if record.benchmark_task_count:
+        return not record.is_partial_run and record.tasks_total >= record.benchmark_task_count
+    return record.tasks_total >= 25
+
+
+def collect_task_ids(
+    task_scores_all: dict,
+    latest_eval,
+    task_cache: dict,
+    trace_map: dict,
+    task_deltas: dict | None = None,
+    targeted_task: str | None = None,
+) -> list[str]:
+    task_ids = set(task_scores_all)
+    task_ids.update(task_cache)
+    task_ids.update(trace_map)
+    if latest_eval:
+        task_ids.update(t.task_id for t in latest_eval.tasks)
+        task_ids.update(item["task"] for item in latest_eval.consistently_failing)
+    if task_deltas:
+        task_ids.update(task_deltas)
+    if targeted_task:
+        task_ids.add(targeted_task)
+    return sorted(task_ids, key=_task_sort_key)
+
+
 # ── Eval report parser ────────────────────────────────────────────────────────
 
 
@@ -107,23 +142,72 @@ def parse_eval_report(path: Path) -> EvalReport:
     text = path.read_text()
     ts, dt = _parse_ts(path.stem)
 
-    verdict_m = re.search(r"## Verdict:\s*(\S+)", text)
-    verdict = verdict_m.group(1) if verdict_m else "UNKNOWN"
+    # Verdict — multiple formats: "## Verdict: X", "## Cycle Verdict: X", "**Verdict:** X"
+    verdict = "UNKNOWN"
+    for pat in [r"##\s*(?:Cycle\s+)?Verdict:\s*(\S+)", r"\*\*Verdict:\*\*\s*(\S+)"]:
+        m = re.search(pat, text)
+        if m:
+            verdict = m.group(1)
+            break
+    # Infer verdict from content when not explicitly stated
+    if verdict == "UNKNOWN":
+        has_improve = bool(re.search(r"\*\*(t\d+)\*\*:\s*0→1", text))
+        has_regress = bool(re.search(r"\*\*(t\d+)\*\*:\s*1→0", text))
+        if has_improve and has_regress:
+            verdict = "IMPROVED_WITH_REGRESSION"
+        elif has_improve:
+            verdict = "IMPROVED"
+        elif has_regress:
+            verdict = "REGRESSED"
+        else:
+            verdict = "NEUTRAL"
 
-    total_m = re.search(r"Current total:\s*([\d.]+)%\s*\((\d+)/25", text)
-    score_pct = float(total_m.group(1)) if total_m else 0.0
-    tasks_passed = int(total_m.group(2)) if total_m else 0
+    # Score + tasks passed — "Current total: X% (N/M", "**Score:** N/M (X%)", "**Run N:** M/T (X%)"
+    score_pct = 0.0
+    tasks_passed = 0
+    tasks_total = 0
+    total_m = re.search(r"Current total:\s*([\d.]+)%\s*\((\d+)/(\d+)", text)
+    if total_m:
+        score_pct = float(total_m.group(1))
+        tasks_passed = int(total_m.group(2))
+        tasks_total = int(total_m.group(3))
+    else:
+        score_m = re.search(r"\*\*(?:Score|Run\s+\d+):\*\*\s*(\d+)/(\d+)\s*\(([\d.]+)%\)", text)
+        if score_m:
+            tasks_passed = int(score_m.group(1))
+            tasks_total = int(score_m.group(2))
+            score_pct = float(score_m.group(3))
 
+    # Delta — "Delta: +8.00%", "**Delta:** +3.2pp", "**Delta:** -2 tasks (-6.45pp)"
+    delta_pct = 0.0
     delta_m = re.search(r"Delta:\s*([+-]?[\d.]+)%", text)
-    delta_pct = float(delta_m.group(1)) if delta_m else 0.0
+    if delta_m:
+        delta_pct = float(delta_m.group(1))
+    else:
+        # Try "(-6.45pp)" in parentheses first, then bare "+3.2pp"
+        delta_m = re.search(r"\(([+-]?[\d.]+)pp\)", text) or re.search(
+            r"\*\*Delta:\*\*\s*([+-]?[\d.]+)pp", text
+        )
+        if delta_m:
+            delta_pct = float(delta_m.group(1))
 
+    # Task rows — 5-col (prev|curr|delta|status) or 2-col (score|status) tables
     rows = re.findall(
         r"\|\s*(t\d+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([+-]?[\d.]+)\s*\|\s*([^|\n]+)",
         text,
     )
     tasks = [TaskScore(r[0], float(r[1]), float(r[2]), float(r[3]), r[4].strip()) for r in rows]
+    if not tasks:
+        # 2-col: "| t01 | 1.00 | PASS |" from auto-generated reports
+        rows2 = re.findall(r"\|\s*(t\d+)\s*\|\s*([\d.]+)\s*\|\s*(\w+)\s*\|", text)
+        tasks = [TaskScore(r[0], 0.0, float(r[1]), float(r[1]), r[2]) for r in rows2]
+    if tasks_total == 0 and tasks:
+        tasks_total = len(tasks)
 
-    model_m = re.search(r"Model:\s*(.+)", text)
+    # Model — "Model: X" or "**Model:** `X`"
+    model_m = re.search(r"\*\*Model:\*\*\s*`?([^`\n]+)`?", text) or re.search(
+        r"Model:\s*(.+)", text
+    )
     model = model_m.group(1).strip() if model_m else "unknown"
 
     log_m = re.search(r"Log:\s*(.+)", text)
@@ -165,6 +249,7 @@ def parse_eval_report(path: Path) -> EvalReport:
         verdict,
         score_pct,
         tasks_passed,
+        tasks_total,
         delta_pct,
         tasks,
         model,
@@ -275,11 +360,13 @@ def load_run_history() -> list:
                 RunRecord(
                     timestamp=ts,
                     dt=dt,
+                    benchmark_task_count=entry.get("benchmark_task_count"),
+                    is_partial_run=bool(entry.get("is_partial_run", False)),
                     model=entry.get("model", "unknown"),
                     backend=entry.get("backend", "cli"),
                     score_pct=float(entry.get("score_pct", 0.0)),
                     tasks_passed=int(entry.get("tasks_passed", 0)),
-                    tasks_total=int(entry.get("tasks_total", 25)),
+                    tasks_total=int(entry.get("tasks_total", len(entry.get("tasks", {})))),
                     tasks=entry.get("tasks", {}),
                     cost_usd=float(api_usage.get("cost_usd", 0.0)),
                 )
@@ -452,8 +539,15 @@ def build_task_table_df(
             cf_map[item["task"]] = f"{item['cause']}: {item['notes'][:40]}"
 
     rows = []
-    for i in range(1, 26):
-        tid = f"t{i:02d}"
+    task_ids = collect_task_ids(
+        task_scores_all,
+        latest_eval,
+        task_cache,
+        trace_map,
+        task_deltas,
+        targeted_task,
+    )
+    for tid in task_ids:
         scores = task_scores_all.get(tid, [])
         latest_score = scores[-1] if scores else -1
         passes = sum(1 for s in scores if s >= 1.0)
@@ -501,7 +595,8 @@ def build_task_table_df(
     df = pd.DataFrame(rows)
     sort_order = {"✗": 0, "🎯": 1, "?": 2, "✓": 3}
     df["_sort"] = df["Статус"].map(sort_order)
-    df = df.sort_values(["_sort", "Задача"]).drop(columns=["_sort"])
+    df["_task_num"] = df["Задача"].map(lambda tid: _task_sort_key(tid)[0])
+    df = df.sort_values(["_sort", "_task_num", "Задача"]).drop(columns=["_sort", "_task_num"])
     return df
 
 
@@ -523,6 +618,51 @@ class DashboardSummary:
     bottleneck_points: int
     projected_score_pct: float
     task_deltas: dict  # task_id -> delta float
+
+
+def extract_task_metrics_df(record: RunRecord) -> pd.DataFrame:
+    """Build per-task metrics DataFrame from a RunRecord. Includes TOTAL row."""
+    rows = []
+    tot_time = 0.0
+    tot_steps = tot_tools = tot_prompt = tot_compl = 0
+    for tid in sorted(record.tasks.keys(), key=_task_sort_key):
+        td = record.tasks[tid]
+        score = td.get("score", 0.0)
+        m = td.get("metrics", {})
+        time_s = m.get("total_time_ms", 0) / 1000.0
+        steps = m.get("step_count", 0)
+        tools = m.get("tool_call_count", 0)
+        prompt = m.get("prompt_tokens", 0)
+        compl = m.get("completion_tokens", 0)
+        rows.append(
+            {
+                "Task": tid,
+                "Score": "PASS" if score >= 1.0 else "FAIL",
+                "Time": f"{time_s:.1f}s" if time_s > 0 else "—",
+                "Steps": steps or "—",
+                "Tool Calls": tools or "—",
+                "Prompt Tok": f"{prompt:,}" if prompt else "—",
+                "Compl Tok": f"{compl:,}" if compl else "—",
+            }
+        )
+        tot_time += time_s
+        tot_steps += steps
+        tot_tools += tools
+        tot_prompt += prompt
+        tot_compl += compl
+    passed = sum(1 for r in rows if r["Score"] == "PASS")
+    rows.append(
+        {
+            "Task": "TOTAL",
+            "Score": f"{passed}/{len(rows)} ({record.score_pct:.1f}%)",
+            "Time": f"{tot_time:.0f}s ({tot_time / 60:.0f}m)",
+            "Steps": tot_steps,
+            "Tool Calls": tot_tools,
+            "Prompt Tok": f"{tot_prompt:,}",
+            "Compl Tok": f"{tot_compl:,}",
+        }
+    )
+    return pd.DataFrame(rows)
 
 
 def compute_dashboard_summary(evals: list, task_scores_all: dict) -> DashboardSummary:  # noqa: ARG001
@@ -551,6 +691,7 @@ def compute_dashboard_summary(evals: list, task_scores_all: dict) -> DashboardSu
     bottleneck_tasks: list = []
     bottleneck_points = 0
     projected = current
+    total_tasks = latest.tasks_total if latest and latest.tasks_total > 0 else max(len(task_scores_all), 1)
     if latest and latest.next_priorities:
         prio = latest.next_priorities[0]
         m = re.match(r"(t\d+(?:\+t\d+)*)\s*\((\w+),\s*(\d+)\s*pts?\):\s*(.+)", prio)
@@ -558,7 +699,7 @@ def compute_dashboard_summary(evals: list, task_scores_all: dict) -> DashboardSu
             bottleneck_tasks = m.group(1).split("+")
             bottleneck_points = int(m.group(3))
             bottleneck_desc = m.group(4).strip()[:80]
-            projected = current + (bottleneck_points / 25 * 100)
+            projected = current + (bottleneck_points / total_tasks * 100)
         else:
             bottleneck_desc = prio[:80]
 
