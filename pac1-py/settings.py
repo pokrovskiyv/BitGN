@@ -31,6 +31,7 @@ class RuntimeSettings:
     benchmark_id: str
     llm_backend: str
     primary_model: str
+    verifier_backend: str
     verifier_model: str
     verifier_policy: str
     parallel_workers: int
@@ -42,6 +43,7 @@ _PROFILE_DEFAULTS = {
     "dev": {
         "llm_backend": "nebius",
         "primary_model": "Qwen/Qwen3-235B-A22B-Thinking-2507",
+        "verifier_backend": "api",
         "verifier_model": "claude-haiku-4-5",
         "verifier_policy": "adaptive",
         "parallel_workers": 1,
@@ -49,6 +51,7 @@ _PROFILE_DEFAULTS = {
     "final": {
         "llm_backend": "api",
         "primary_model": "claude-sonnet-4-6",
+        "verifier_backend": "api",
         "verifier_model": "claude-haiku-4-5",
         "verifier_policy": "adaptive",
         "parallel_workers": 4,
@@ -73,6 +76,11 @@ SETTINGS = RuntimeSettings(
         "PRIMARY_MODEL_ID",
         "MODEL_ID",
         default=_PROFILE["primary_model"],
+    ),
+    verifier_backend=_env_first(
+        "VERIFIER_LLM_BACKEND",
+        "VERIFIER_BACKEND",
+        default=_PROFILE["verifier_backend"],
     ),
     verifier_model=_env_first(
         "VERIFIER_MODEL_ID",

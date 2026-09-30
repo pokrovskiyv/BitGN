@@ -62,7 +62,33 @@ class BitgnBenchmarkAdapter(BenchmarkAdapter):
             try:
                 data = trajectory.conversation[0]
                 score = float(data.get("score", 0.0))
-                detail = "\n".join(data.get("detail") or [])
+                detail_lines = list(data.get("detail") or [])
+                task_description = data.get("task_description")
+                if task_description:
+                    detail_lines.append(f"[TASK] {str(task_description)[:500]}")
+                agent_metrics = data.get("agent_metrics") or {}
+                if agent_metrics:
+                    detail_lines.append(
+                        "[AGENT] "
+                        f"outcome={agent_metrics.get('outcome')} "
+                        f"steps={agent_metrics.get('step_count')} "
+                        f"tools={agent_metrics.get('tool_call_count')}"
+                    )
+                    verifier = agent_metrics.get("verifier_verdict")
+                    if verifier:
+                        detail_lines.append(
+                            "[VERIFIER] "
+                            f"agree={verifier.get('agree')} "
+                            f"suggested={verifier.get('suggested_outcome')} "
+                            f"reason={str(verifier.get('reasoning', ''))[:240]}"
+                        )
+                    for step in (agent_metrics.get("steps") or [])[:12]:
+                        detail_lines.append(
+                            "[STEP] "
+                            f"{step.get('step')} {step.get('tool')} "
+                            f"{step.get('args')} :: {step.get('plan')}"
+                        )
+                detail = "\n".join(detail_lines)
                 reflection = data.get("reflection")
                 if reflection:
                     detail += f"\n[REFLECTION] mode={reflection.get('failure_mode', 'unknown')}"

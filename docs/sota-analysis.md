@@ -4,6 +4,42 @@
 **Input for**: Architect, Red Team, Optimizer agents
 **Status**: Active — update after each PCDRED iteration
 
+## 2026-05-28 SkillOpt Delta
+
+**New source**: Microsoft SkillOpt (project page, repo, arXiv:2605.23904).
+
+SkillOpt changes the development-time recommendation: optimize the agent's prompt/skill artifacts through a validation-gated text-space training loop, not through broad free-form self-rewrites. The useful transfer is a SkillOpt-lite layer around our existing PCDRED agent:
+
+| Priority | Change | BitGN adaptation |
+|---|---|---|
+| P0 | Rollout evidence export | A-Evolve trajectories should include task text, score, outcome, step/tool digest, verifier verdict, and failure mode. Implemented in `bitgn_agent.py` / `bitgn_benchmark.py`. |
+| P1 | Bounded prompt edits | Limit prompt-fragment candidates to small add/delete/replace patches before any full rewrite. |
+| P1 | Held-out gate | Accept a candidate only when selection improves and holdout does not regress. Security false negatives always reject. |
+| P1 | Failure/success minibatches | Reflect on failed and successful task families separately, then merge with failure priority. |
+| P2 | Rejected-edit buffer | Feed failed candidate edits into the next optimizer prompt so the loop does not repeat harmful changes. |
+| P2 | Slow/meta update | At epoch boundaries, compare previous vs current accepted prompts on the same tasks and distill optimizer-only memory. |
+
+See `docs/superpowers/specs/2026-05-28-skillopt-pcdred-adaptation.md` for the architecture update.
+
+## 2026-05-29 Agent Governance Toolkit Delta
+
+**New source**: Microsoft Agent Governance Toolkit (`microsoft/agent-governance-toolkit`, commit `6572fd0`).
+
+AGT reinforces the ECOM direction: treat prompt safety as advisory, but make
+high-risk actions pass through deterministic code policy before dispatch. For
+BitGN, we should adopt AGT patterns without importing the full mesh/compliance
+stack.
+
+| Priority | Change | BitGN adaptation |
+|---|---|---|
+| P0 | Static prompt defense check | Ran AGT PromptDefenseEvaluator on `workspace/prompts/system.md`; improved from `C` / `6/12` to `A` / `12/12`. |
+| P1 | Deterministic pre-tool policy | Add local policy gate before dispatch for ECOM `exec`, `/bin/sql`, checkout/refund/discount side effects, and protected writes. |
+| P1 | Fail closed | Policy evaluation errors should deny dispatch and require safe completion or new evidence. |
+| P2 | Decision/audit fields | Add `policy_decision`, `policy_rule`, `policy_reason`, and args hash to `steps_detail` for SkillOpt/PCDRED analysis. |
+| P3 | Decision BOM view | Reconstruct why an action was allowed/blocked from traces instead of relying on agent self-report. |
+
+See `docs/superpowers/specs/2026-05-29-agent-governance-toolkit-adaptation.md` for the adaptation note.
+
 ## 1. Gap Analysis
 
 ### Design Strengths (already SoTA-aligned)

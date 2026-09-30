@@ -46,6 +46,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # Layered .env loading (mirrors main.py semantics)
+_EXTERNAL_ENV = dict(os.environ)
 load_dotenv()
 if os.getenv("RUN_PROFILE", "").strip().lower() == "final":
     _here = Path(__file__).parent
@@ -54,15 +55,19 @@ if os.getenv("RUN_PROFILE", "").strip().lower() == "final":
         _final_env = _here / ".env.final.example"
     if _final_env.exists():
         load_dotenv(_final_env, override=True)
+        os.environ.update(_EXTERNAL_ENV)
 
 from bitgn.harness_pb2 import (  # noqa: E402
     EndTrialRequest,
     GetBenchmarkRequest,
+    StartRunRequest,
     StartPlaygroundRequest,
+    StartTrialRequest,
+    SubmitRunRequest,
 )
 from connectrpc.errors import ConnectError  # noqa: E402
 
-from bitgn_client import make_harness_client  # noqa: E402
+from bitgn_client import BITGN_API_KEY, make_harness_client  # noqa: E402
 from settings import SETTINGS  # noqa: E402
 
 
@@ -122,6 +127,56 @@ def _render_live(tasks, host: str, benchmark_id: str, limit: int) -> list[str]:
     return lines
 
 
+def _render_live_run(tasks, host: str, benchmark_id: str, limit: int) -> list[str]:
+    """Fetch instructions through StartRun/StartTrial for runtimes without playground."""
+    lines: list[str] = []
+    sliced = list(tasks)[:limit] if limit > 0 else list(tasks)
+    selected = {getattr(t, "task_id", "") for t in sliced}
+    client = make_harness_client(host)
+    run = client.start_run(
+        StartRunRequest(
+            name="Benchmark reconnaissance",
+            benchmark_id=benchmark_id,
+            api_key=BITGN_API_KEY,
+        )
+    )
+    fetched = 0
+    try:
+        for trial_id in run.trial_ids:
+            if limit > 0 and fetched >= limit:
+                break
+            try:
+                trial = client.start_trial(StartTrialRequest(trial_id=trial_id))
+                if selected and trial.task_id not in selected:
+                    client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
+                    continue
+                fetched += 1
+                trial_short = (
+                    trial.trial_id[:8] + "…" if len(trial.trial_id) > 8 else trial.trial_id
+                )
+                instruction = (trial.instruction or "").rstrip()
+                harness_url = getattr(trial, "harness_url", "")
+                lines.append(f"## {trial.task_id}  (trial {trial_short})")
+                if harness_url:
+                    lines.append(f"harness: {harness_url}")
+                lines.append("")
+                lines.append(instruction if instruction else "<empty instruction>")
+                lines.append("")
+                client.end_trial(EndTrialRequest(trial_id=trial.trial_id))
+                print(f"[{fetched}/{len(sliced)}] {trial.task_id} OK", file=sys.stderr)
+            except ConnectError as exc:
+                lines.append(f"## {trial_id}  ERROR {exc.code}: {exc.message}")
+                lines.append("")
+                print(f"[{fetched + 1}/{len(sliced)}] {trial_id} FAIL: {exc.code}", file=sys.stderr)
+    finally:
+        try:
+            client.submit_run(SubmitRunRequest(run_id=run.run_id, force=True))
+        except Exception as exc:
+            lines.append(f"(submit_run warning: {exc})")
+            lines.append("")
+    return lines
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Dump benchmark task instructions without running the agent loop.",
@@ -132,6 +187,12 @@ def main() -> int:
         action="store_true",
         help="Call start_playground/end_trial for each task to capture full instruction "
         "(WARNING: may count as an attempt on some benchmarks)",
+    )
+    parser.add_argument(
+        "--live-method",
+        choices=("auto", "playground", "run"),
+        default="auto",
+        help="Instruction fetch method for --live. ECOM uses run-based trials.",
     )
     parser.add_argument(
         "--limit",
@@ -174,7 +235,17 @@ def main() -> int:
     header.append("")
 
     if args.live:
-        body = _render_live(res.tasks, SETTINGS.benchmark_host, SETTINGS.benchmark_id, args.limit)
+        live_method = args.live_method
+        if live_method == "auto":
+            live_method = "run" if "ecom" in SETTINGS.benchmark_id.lower() else "playground"
+        if live_method == "run":
+            body = _render_live_run(
+                res.tasks, SETTINGS.benchmark_host, SETTINGS.benchmark_id, args.limit
+            )
+        else:
+            body = _render_live(
+                res.tasks, SETTINGS.benchmark_host, SETTINGS.benchmark_id, args.limit
+            )
     else:
         body = _render_quick(res.tasks)
 

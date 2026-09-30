@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 # this layering, dev values in .env (e.g. LLM_BACKEND=nebius, MODEL_ID=Qwen3)
 # would silently override the final profile defaults in settings.py and the
 # Sonnet+Haiku scaffold would be bypassed at runtime.
+_EXTERNAL_ENV = dict(os.environ)
 load_dotenv()
 if os.getenv("RUN_PROFILE", "").strip().lower() == "final":
     _here = Path(__file__).parent
@@ -22,6 +23,7 @@ if os.getenv("RUN_PROFILE", "").strip().lower() == "final":
         _final_env = _here / ".env.final.example"
     if _final_env.exists():
         load_dotenv(_final_env, override=True)
+        os.environ.update(_EXTERNAL_ENV)
         print(f"[final-profile] loaded {_final_env.name} (overrides applied)")
     else:
         print("[final-profile] WARNING: no .env.final or .env.final.example found")
@@ -41,7 +43,7 @@ from connectrpc.errors import ConnectError
 from agent import run_agent
 from bitgn_client import BITGN_API_KEY, make_harness_client
 from llm import LLM_BACKEND
-from second_opinion import VERIFIER_MODEL, get_verifier_usage
+from second_opinion import VERIFIER_BACKEND, VERIFIER_MODEL, get_verifier_usage
 from settings import SETTINGS
 
 BITGN_URL = SETTINGS.benchmark_host
@@ -140,6 +142,13 @@ def _collect_usage() -> dict | None:
         r_in, r_out = next((v for k, v in _RATES_OPENROUTER.items() if k in MODEL_ID), (0, 0))
         cost = (u["input_tokens"] * r_in + u["output_tokens"] * r_out) / 1_000_000
         return {**u, "cost_usd": round(cost, 4)}
+    if LLM_BACKEND == "codex_cli":
+        from llm import get_codex_cli_usage
+
+        u = get_codex_cli_usage()
+        if not u["calls"]:
+            return None
+        return {**u, "cost_usd": 0}
     if LLM_BACKEND == "api":
         from llm import get_api_usage
 
@@ -161,6 +170,8 @@ def _collect_verifier_usage() -> dict | None:
     usage = get_verifier_usage()
     if not usage["calls"]:
         return None
+    if VERIFIER_BACKEND == "codex_cli":
+        return {**usage, "cost_usd": 0}
     r_in, r_out, _, _ = next(
         (v for k, v in _RATES_ANTHROPIC.items() if k in VERIFIER_MODEL),
         (1, 5, 1.25, 0.1),

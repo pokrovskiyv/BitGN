@@ -1,15 +1,29 @@
 """Agent entry point — thin wrapper preserving the run_agent() signature.
 
-All domain-specific logic lives in domain_fs.py. The generic agent loop
-lives in agent_loop.py. This file exists solely to maintain backward
-compatibility with bitgn_agent.py, main.py, and evolve.py which all
-import `from agent import run_agent`.
+Domain-specific logic lives in domain_*.py. The generic agent loop lives in
+agent_loop.py. This file keeps `from agent import run_agent` stable for
+bitgn_agent.py, main.py, and evolve.py.
 """
+
+import os
 
 from agent_loop import AgentResult, run_agent_loop
 from domain_fs import FilesystemDomain
+from settings import SETTINGS
 
-_domain = FilesystemDomain()
+
+def _select_domain():
+    benchmark = SETTINGS.benchmark_id.lower()
+    override = os.getenv("BITGN_DOMAIN", "").strip().lower()
+    domain_name = override or ("ecom" if "ecom" in benchmark else "filesystem")
+    if domain_name == "ecom":
+        from domain_ecom import EcomDomain
+
+        return EcomDomain()
+    return FilesystemDomain()
+
+
+_domain = _select_domain()
 
 
 def run_agent(model: str, harness_url: str, task_text: str) -> AgentResult:

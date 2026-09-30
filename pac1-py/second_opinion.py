@@ -2,7 +2,8 @@
 
 Spawns a one-shot LLM call with a "verifier" role to check whether the
 agent chose the correct outcome before report_completion is dispatched.
-Uses a dedicated Anthropic client independent of the main agent's LLM backend.
+Uses a dedicated backend independent of the main agent's LLM backend. Anthropic
+is the default; `VERIFIER_BACKEND=codex_cli` routes it through Codex CLI.
 """
 
 import random
@@ -16,6 +17,7 @@ from classify import TaskClassification
 from settings import SETTINGS
 
 VERIFIER_MODEL = SETTINGS.verifier_model
+VERIFIER_BACKEND = SETTINGS.verifier_backend
 VERIFIER_POLICY = SETTINGS.verifier_policy
 
 _WORKSPACE = Path(__file__).parent / "workspace"
@@ -101,6 +103,27 @@ def get_second_opinion(
     )
 
     try:
+        if VERIFIER_BACKEND == "codex_cli":
+            from llm import call_codex_cli_structured, get_codex_cli_usage
+
+            before = get_codex_cli_usage()
+            verdict = call_codex_cli_structured(
+                verifier_prompt,
+                "",
+                [{"role": "user", "content": user_content}],
+                VERIFIER_MODEL,
+                VerifierVerdict,
+            )
+            after = get_codex_cli_usage()
+            _usage["input_tokens"] += after.get("input_tokens", 0) - before.get("input_tokens", 0)
+            _usage["output_tokens"] += after.get("output_tokens", 0) - before.get("output_tokens", 0)
+            _usage["calls"] += after.get("calls", 0) - before.get("calls", 0)
+            return verdict
+        if VERIFIER_BACKEND != "api":
+            return VerifierVerdict(
+                agree=True, reasoning=f"verifier backend unsupported ({VERIFIER_BACKEND})"
+            )
+
         import anthropic
 
         client = _get_client()
