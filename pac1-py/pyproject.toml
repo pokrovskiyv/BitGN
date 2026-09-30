@@ -5,13 +5,15 @@ description = "Runnable Python sample for the BitGN PAC1 benchmark"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "bitgn-api-connectrpc-python==0.9.0.1.20260405144405+6b39e6872349",
-    "bitgn-api-protocolbuffers-python==34.1.0.1.20260405144405+6b39e6872349",
+    "annotated-types>=0.7.0",
+    "bitgn-api-connectrpc-python==0.10.0.1.20260528115439+d3855da61ce2",
+    "bitgn-api-protocolbuffers-python==35.0.0.1.20260528115439+d3855da61ce2",
     "pydantic>=2.12.5",
     "anthropic>=0.50.0",
-    "openai>=1.82.0",
+    "openai>=2.26.0",
     "agent-evolve @ git+https://github.com/A-EVO-Lab/a-evolve.git@633ebb6e219b7a2594f5f7299bba834afb622503",
     "python-dotenv>=1.2.2",
+    "protobuf>=7.35.0",
 ]
 
 [[tool.uv.index]]
@@ -24,7 +26,9 @@ url = "https://buf.build/gen/python"
 # AICODE-NOTE: PAC1 depends on the public PCM runtime modules generated under
 # `bitgn.vm.pcm_*`; if local pins predate that schema publication, rerun
 # `make sdk-python` from `harness_core` after pushing the latest API digest.
+# AICODE-NOTE: ECOM depends on `bitgn.vm.ecom.*`; keep SDK pins at a schema
+# digest that includes both PAC/PCM and ECOM runtime modules.
 package = false
 override-dependencies = [
-    "protobuf>=7.34.1,<8",
+    "protobuf>=7.35.0,<8",
 ]

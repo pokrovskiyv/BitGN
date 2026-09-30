@@ -60,6 +60,20 @@ class BitgnAgent(BaseAgent):
             mode = "other"
         return {"failure_mode": mode, "instruction_prefix": instruction[:200]}
 
+    @staticmethod
+    def _build_agent_metrics(agent_result) -> dict | None:
+        """Export compact rollout evidence for prompt/skill optimization."""
+        if agent_result is None:
+            return None
+        return {
+            "outcome": getattr(agent_result, "outcome", None),
+            "total_time_ms": getattr(agent_result, "total_time_ms", None),
+            "step_count": getattr(agent_result, "step_count", None),
+            "tool_call_count": getattr(agent_result, "tool_call_count", None),
+            "verifier_verdict": getattr(agent_result, "verifier_verdict", None),
+            "steps": getattr(agent_result, "steps_detail", []),
+        }
+
     def solve(self, task: Task) -> Trajectory:
         """Run the agent on a single task and return trajectory with cached score."""
         trial = self._harness_client.start_playground(
@@ -79,7 +93,14 @@ class BitgnAgent(BaseAgent):
 
         score = float(result.score)
         detail = list(result.score_detail)
-        entry: dict = {"score": score, "detail": detail}
+        entry: dict = {
+            "score": score,
+            "detail": detail,
+            "task_description": trial.instruction,
+        }
+        agent_metrics = self._build_agent_metrics(_agent_result)
+        if agent_metrics:
+            entry["agent_metrics"] = agent_metrics
         if score < 1.0:
             entry["reflection"] = self._build_reflection(trial.instruction, score, detail)
 
